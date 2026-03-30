@@ -24,34 +24,27 @@ function Callback() {
   return <h1>Caricamento Spotify...</h1>;
 }
 
+
+
 function Game() {
-  const [profile, setProfile] = useState<{ display_name: string; email: string } | null>(null);
+  const [user] = useState(() => ({
+    spotify_id: localStorage.getItem("spotify_id") || undefined,
+    display_name: localStorage.getItem("display_name") || undefined,
+    email: localStorage.getItem("email") || undefined,
+  }));
 
-  useEffect(() => {
-    const access_token = localStorage.getItem("access_token");
-    if (!access_token) return;
-
-    fetch("http://127.0.0.1:5000/api/spotify/profile", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ access_token }),
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (!data.error) setProfile(data);
-      })
-      .catch(err => console.error("Errore fetch profilo:", err));
-  }, []);
-
-  if (!profile) return <h1>Caricamento profilo...</h1>;
+  if (!user.spotify_id) return <p>Caricamento...</p>;
 
   return (
     <div>
-      <h1>Benvenuto, {profile.display_name}!</h1>
-      <p>Email: {profile.email}</p>
+      <h1>Benvenuto, {user.display_name}!</h1>
+      <p>Spotify ID: {user.spotify_id}</p>
+      <p>Email: {user.email}</p>
     </div>
   );
 }
+
+
 
 function App() {
   return (

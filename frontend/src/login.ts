@@ -53,17 +53,12 @@ export async function exchangeToken() {
   // Se non c'è code, esci subito
   if (!code) return;
 
-  // Se access_token già presente, non rifare la richiesta
-  if (localStorage.getItem("access_token")) {
-    console.log("Token già presente");
-    return;
-  }
-
   const codeVerifier = localStorage.getItem("code_verifier");
   if (!codeVerifier) return console.error("Code verifier non trovato");
-
+ // Fai la richiesta al backend per scambiare code con token
   try {
     console.log("Sto facendo la richiesta token...");
+    console.log("BACKEND_URL:", BACKEND_URL);
     const res = await fetch(`${BACKEND_URL}/api/spotify/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -73,45 +68,14 @@ export async function exchangeToken() {
     const data = await res.json();
     if (data.error) return console.error("Errore ottenendo il token:", data);
 
-    localStorage.setItem("access_token", data.access_token);
-    localStorage.setItem("refresh_token", data.refresh_token);
+    localStorage.setItem("spotify_id", data.user.id);
+    localStorage.setItem("display_name", data.user.username);
+    localStorage.setItem("email", data.user.email);
 
-    console.log("Access token ottenuto:", data.access_token);
-    console.log("Refresh token ottenuto:", data.refresh_token);
+    console.log("Id: " + data.user.id);
+    return;
 
-    if (data.expires_in) setupAutoRefresh(data.expires_in);
   } catch (err) {
     console.error("Errore exchangeToken:", err);
   }
-}
-
-// Refresh automatico del token usando il backend
-export async function refreshToken() {
-  const refresh_token = localStorage.getItem("refresh_token");
-  if (!refresh_token) return;
-
-  try {
-    const res = await fetch(`${BACKEND_URL}/api/spotify/refresh`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token }),
-    });
-    const data = await res.json();
-    if (data.error) return console.error("Errore refresh token:", data);
-
-    localStorage.setItem("access_token", data.access_token);
-    console.log("Access token rinfrescato:", data.access_token);
-
-    if (data.expires_in) setupAutoRefresh(data.expires_in);
-  } catch (err) {
-    console.error("Errore refreshToken:", err);
-  }
-}
-
-// Timer per refresh automatico prima della scadenza
-function setupAutoRefresh(expiresIn: number) {
-  const refreshTime = (expiresIn - 60) * 1000; // 60 sec margine
-  setTimeout(() => {
-    refreshToken();
-  }, refreshTime);
 }
