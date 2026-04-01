@@ -23,7 +23,8 @@ const base64encode = (input: ArrayBuffer) => {
     .replace(/\//g, "_");
 };
 
-// Salva code_verifier e redirect verso Spotify
+// ... (generateRandomString, sha256, base64encode rimangono uguali)
+
 export async function loginSpotify() {
   const codeVerifier = generateRandomString(64);
   const hashed = await sha256(codeVerifier);
@@ -31,7 +32,7 @@ export async function loginSpotify() {
 
   localStorage.setItem("code_verifier", codeVerifier);
 
-  const scope = "user-read-private user-read-email";
+  const scope = "user-read-private user-read-email user-top-read";
   const authUrl = new URL("https://accounts.spotify.com/authorize");
   authUrl.search = new URLSearchParams({
     response_type: "code",
@@ -50,32 +51,57 @@ export async function exchangeToken() {
   const urlParams = new URLSearchParams(window.location.search);
   const code = urlParams.get("code");
 
-  // Se non c'è code, esci subito
   if (!code) return;
 
   const codeVerifier = localStorage.getItem("code_verifier");
   if (!codeVerifier) return console.error("Code verifier non trovato");
- // Fai la richiesta al backend per scambiare code con token
+
   try {
-    console.log("Sto facendo la richiesta token...");
-    console.log("BACKEND_URL:", BACKEND_URL);
+    console.log("Richiesta token al backend...");
+    
     const res = await fetch(`${BACKEND_URL}/api/spotify/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      // FONDAMENTALE: permette al browser di ricevere e salvare il cookie httpOnly
+      credentials: "include", 
       body: JSON.stringify({ code, code_verifier: codeVerifier }),
     });
 
     const data = await res.json();
-    if (data.error) return console.error("Errore ottenendo il token:", data);
+    if (!res.ok) throw new Error(data.error || "Errore durante il login");
 
-    localStorage.setItem("spotify_id", data.user.id);
-    localStorage.setItem("display_name", data.user.username);
-    localStorage.setItem("email", data.user.email);
+    // PULIZIA: Rimuoviamo il verifier perché non serve più
+    localStorage.removeItem("code_verifier");
 
-    console.log("Id: " + data.user.id);
-    return;
+    return data;
 
   } catch (err) {
     console.error("Errore exchangeToken:", err);
+    throw err;
   }
+}
+
+// NUOVA FUNZIONE: Da chiamare nell'App.js per recuperare la sessione al refresh
+export async function checkSession() {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/spotify/me`, {
+      method: "GET",
+      credentials: "include", // Invia il cookie al backend per farsi riconoscere
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.error("Errore checkSession:", err);
+    return null;
+  }
+}
+
+export async function fetchTopUser(type: "artists" | "tracks", range: string) {
+  const res = await fetch(`${BACKEND_URL}/api/spotify/TopUser?type=${type}&range=${range}`, {
+    method: "GET",
+    credentials: "include", 
+  });
+  if (!res.ok) 
+    throw new Error(`Errore fetching top ${type}: ${res.statusText}`);
+  return await res.json();
 }
