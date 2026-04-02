@@ -11,7 +11,7 @@ export const authenticate = (req, res, next) => {
 
   try {
     // 3. Verifichiamo se il token è valido e non è scaduto
-    // Usa lo stesso JWT_SECRET che hai usato nella funzione loginSpotify
+    // Usa lo stesso JWT_SECRET che ho usato nella funzione loginSpotify
     const secret = process.env.JWT_SECRET
     const decoded = jwt.verify(token, secret);
 
@@ -19,7 +19,7 @@ export const authenticate = (req, res, next) => {
     // Così le funzioni successive (come TopArtists) possono usarli
     req.user = decoded;
 
-    // 5. Passiamo al "prossimo" pezzo di codice (la tua funzione finale)
+    // 5. Passiamo al "prossimo" pezzo di codice
     next();
   } catch (err) {
     // Se il token è manomesso o scaduto

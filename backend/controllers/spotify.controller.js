@@ -53,6 +53,8 @@ export const loginSpotify = async (req, res) => {
       spotifyId: profile.id,
       username: profile.display_name,
       email: profile.email,
+      images: profile.images[0] || null,
+      defaultAvatarId: profile.images.length === 0 ?  Math.floor(Math.random() * 5) + 1 : null,
       accessToken: access_token,
       refreshToken: refresh_token,
       tokenExpiresAt: Date.now() + expires_in * 1000,
@@ -64,6 +66,7 @@ export const loginSpotify = async (req, res) => {
       spotifyId: profile.id,
       display_name: profile.display_name,
       email: profile.email,
+      images: profile.images || null,
     };
 
     const sessionToken = jwt.sign(userData, JWT_SECRET, { expiresIn: "7d" });
