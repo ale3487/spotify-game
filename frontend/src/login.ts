@@ -23,7 +23,6 @@ const base64encode = (input: ArrayBuffer) => {
     .replace(/\//g, "_");
 };
 
-// ... (generateRandomString, sha256, base64encode rimangono uguali)
 
 export async function loginSpotify() {
   const codeVerifier = generateRandomString(64);
