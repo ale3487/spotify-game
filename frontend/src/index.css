@@ -1,20 +1,32 @@
+/**
+ * @file Stili globali e configurazione Tailwind CSS v4.
+ * Definisce il design system (colori, animazioni), utility personalizzate
+ * e reset globali per l'intera applicazione.
+ */
+
 @import "tailwindcss";
 
-/* --- CONFIGURAZIONE TAILWIND v4 --- */
+/**
+ * CONFIGURAZIONE DESIGN SYSTEM (Tailwind v4 Theme)
+ * Estende le variabili predefinite di Tailwind con il brand identity.
+ */
 @theme {
-  /* Definiamo il Giallo Oro/Ambra personalizzato */
+  /* Palette Colori Brand */
   --color-brand: #c79a00;
   --color-brand-hover: #e6b100;
   --color-brand-dark: #0a0a0a;
 
-  /* Definiamo l'animazione complessa delle note */
+  /* Animazioni e Keyframes */
   --animate-music-float: float-complex 12s infinite ease-in-out;
-
-  /* Definiamo i gradienti dell'effetto torcia usando le variabili CSS dinamiche */
+  
+  /* Gradienti Dinamici (Utilizzano variabili CSS aggiornate via JS per l'effetto spotlight) */
   --background-image-spotlight: radial-gradient(350px at var(--mouse-x) var(--mouse-y), rgba(255, 210, 0, 0.35) 0%, rgba(200, 155, 0, 0.1) 40%, transparent 80%);
   --background-image-spotlight-diffuse: radial-gradient(700px at var(--mouse-x) var(--mouse-y), rgba(200, 155, 0, 0.05) 0%, transparent 100%);
 
-  /* Keyframes per l'animazione */
+  /**
+   * Animazione flottante complessa per elementi decorativi.
+   * Gestisce traslazione, rotazione e opacità simultaneamente.
+   */
   @keyframes float-complex {
     0%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.3; }
     33% { transform: translate(45px, -70px) rotate(15deg); opacity: 0.7; }
@@ -22,11 +34,62 @@
   }
 }
 
-/* --- STILI DI BASE --- */
+/**
+ * UTILITY CLASSES
+ * Classi riutilizzabili per interazioni UI avanzate.
+ */
+@utility btn-interact {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  &:hover {
+    transform: scale(1.03);
+  }
+  
+  &:active {
+    transform: scale(0.95);
+    transition-duration: 75ms;
+  }
+}
+
+/**
+ * GLOBAL BASE STYLES
+ * Reset e impostazioni predefinite per gli elementi HTML.
+ */
+@layer base {
+  button {
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  button:active {
+    transform: scale(0.95);
+  }
+}
+
+/**
+ * LAYOUT & TYPOGRAPHY
+ * Impostazioni strutturali per il corpo della pagina.
+ */
 html, body {
   background-color: #0a0a0a;
   color: white;
   margin: 0;
   font-family: system-ui, -apple-system, sans-serif;
-  overflow-x: hidden;
+  overflow-x: hidden; /* Previene scroll orizzontale dovuto ad animazioni */
+}
+
+/**
+ * ANIMAZIONI LEGACY / CUSTOM
+ * Gestione di rotazioni e movimenti specifici.
+ */
+@keyframes clock-spin {
+  from { transform: translateX(-50%) rotate(0deg); }
+  to { transform: translateX(-50%) rotate(360deg); }
+}
+
+/**
+ * Classe per l'animazione di rotazione lenta (es. lancette o sfondi).
+ */
+.animate-clock-slow { 
+  animation: clock-spin 12s linear infinite; 
 }

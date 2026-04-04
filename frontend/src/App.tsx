@@ -1,77 +1,94 @@
-import { Routes, Route, useNavigate, Navigate} from "react-router-dom";
+import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
 import { useEffect, useState, useRef } from "react";
-import { exchangeToken, checkSession, fetchTopUser } from "./login";
+import { exchangeToken, checkSession } from "./spotify.service";
 import Home from './home';
+import Statistics from './Statistics';
 
-
-// 1. Definiamo l'interfaccia precisa per l'utente
-interface SpotifyUser {
+/**
+ * Rappresenta il profilo dell'utente autenticato tramite Spotify.
+ */
+export interface SpotifyUser {
+  /** Identificativo univoco di Spotify */
   spotifyId: string;
+  /** Nome visualizzato dall'utente */
   display_name: string;
+  /** Indirizzo email dell'account */
   email: string;
-  images: {url: string }[] | null; // Può essere un array di immagini o null
-  defaultAvatarId: number | null; // ID dell'avatar predefinito se non ci sono immagini
+  /** Array di immagini del profilo (se presenti) */
+  images: { url: string }[] | null;
+  /** ID per l'avatar generato dal backend (opzionale) */
+  defaultAvatarId: number | null;
 }
 
-// 2. Tipizziamo le Props di Callback
-interface CallbackProps {
-  onLogin: (userData: SpotifyUser) => void;
-}
-
-function Callback({ onLogin }: CallbackProps) {
+/**
+ * Componente per la gestione della Callback di OAuth2.
+ * Recupera il codice dall'URL, effettua lo scambio dei token e reindirizza l'utente.
+ * * @param props - Proprietà del componente.
+ * @param props.onLogin - Callback per aggiornare lo stato dell'utente nel componente root.
+ */
+function Callback({ onLogin }: { onLogin: (u: SpotifyUser) => void }) {
   const navigate = useNavigate();
-  // Usiamo un ref per tracciare se abbiamo già inviato il codice
+  /** Ref per prevenire doppie chiamate causate dal React.StrictMode in sviluppo */
   const hasCalled = useRef(false);
 
   useEffect(() => {
     async function handle() {
-      // Se abbiamo già chiamato o non c'è il code nell'URL, usciamo
       if (hasCalled.current) return;
       
       const urlParams = new URLSearchParams(window.location.search);
-      if (!urlParams.get("code")) return;
+      const code = urlParams.get("code");
+      if (!code) return;
 
-      hasCalled.current = true; // Segniamo che stiamo procedendo
-
+      hasCalled.current = true;
       try {
         const data = await exchangeToken();
         if (data && data.spotifyId) {
-          onLogin(data as SpotifyUser); 
-          navigate("/game");
+          onLogin(data as SpotifyUser);
+          navigate("/statistics");
         }
       } catch (err) {
         console.error("Login fallito", err);
-        // Evitiamo di navigare via subito in caso di errore di "doppia chiamata"
-        // o gestiamo il redirect alla home dopo un delay
+        navigate("/");
       }
     }
     handle();
   }, [navigate, onLogin]);
 
-  return <h1>Caricamento Spotify...</h1>;
+  return (
+    <div className="min-h-screen bg-brand-dark flex items-center justify-center">
+        <div className="animate-pulse text-brand font-black tracking-widest uppercase">
+          Sincronizzazione Spotify...
+        </div>
+    </div>
+  );
 }
 
-// 3. Tipizziamo le Props di Game
-interface GameProps {
-  user: SpotifyUser | null;
-}
-
-
-function Game({ user }: GameProps) {
+/**
+ * Componente di transizione che visualizza il profilo utente e l'avatar.
+ * Agisce come una "Dashboard" rapida prima di accedere alle statistiche.
+ * * @param props - Proprietà del componente.
+ * @param props.user - L'oggetto utente corrente o null se non autenticato.
+ */
+function Game({ user }: { user: SpotifyUser | null }) {
   const navigate = useNavigate();
 
+  // Protezione della rotta: se l'utente non esiste, torna in home
   if (!user) return <Navigate to="/" />;
 
-  // 1. LOGICA DETERMINISTICA PER L'AVATAR (Sempre lo stesso colore per lo stesso ID)
+  /**
+   * Determina l'ID dell'avatar da visualizzare.
+   * Se non fornito dal backend, lo genera deterministicamente basandosi sullo spotifyId.
+   * @returns {number} Un intero tra 1 e 5.
+   */
   const getAvatarId = () => {
     if (user.defaultAvatarId) return user.defaultAvatarId;
-    const charCodeSum = user.spotifyId.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
+    const charCodeSum = user.spotifyId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
     return (charCodeSum % 5) + 1;
   };
 
   const avatarId = getAvatarId();
 
-  // 2. MAPPA COLORI NEON
+  /** Mappatura degli stili grafici in base all'ID avatar */
   const avatarStyles: Record<number, string> = {
     1: 'text-brand bg-brand/10 border-brand/20',
     2: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20',
@@ -82,103 +99,44 @@ function Game({ user }: GameProps) {
 
   return (
     <div className="min-h-screen bg-brand-dark text-white p-8 flex flex-col items-center justify-center">
-      {/* CARD PROFILO */}
       <div className="max-w-md w-full bg-white/[0.03] backdrop-blur-xl border border-white/10 rounded-[40px] p-10 text-center shadow-2xl">
-        
-        {/* SEZIONE AVATAR */}
         <div className="mb-8 flex justify-center">
           {user.images && user.images.length > 0 ? (
-            <img 
-              src={user.images[0].url} 
-              alt="Profile" 
-              className="w-32 h-32 rounded-full border-2 border-brand object-cover shadow-[0_0_30px_rgba(199,154,0,0.3)]" 
-            />
+            <img src={user.images[0].url} alt="Profile" className="w-32 h-32 rounded-full border-2 border-brand object-cover shadow-[0_0_30px_rgba(199,154,0,0.3)]" />
           ) : (
             <div className={`w-32 h-32 rounded-full border-2 flex items-center justify-center shadow-lg ${avatarStyles[avatarId]}`}>
-              <svg className="w-16 h-16" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
-              </svg>
+              <svg className="w-16 h-16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" /></svg>
             </div>
           )}
         </div>
-
-        {/* INFO UTENTE */}
-        <h1 className="text-3xl font-black tracking-tighter mb-2 uppercase italic">
-          {user.display_name}
-        </h1>
-        
-        <div className="space-y-1 mb-10">
-          <p className="text-[10px] font-bold text-white/30 uppercase tracking-[0.3em]">
-            Spotify ID: {user.spotifyId}
-          </p>
-          <p className="text-[10px] font-bold text-white/30 uppercase tracking-[0.3em]">
-            {user.email}
-          </p>
+        <h1 className="text-3xl font-black tracking-tighter mb-2 uppercase italic">{user.display_name}</h1>
+        <div className="space-y-1 mb-10 opacity-40">
+          <p className="text-[10px] font-bold uppercase tracking-[0.3em]">ID: {user.spotifyId}</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.3em]">{user.email}</p>
         </div>
-
-        {/* AZIONI */}
         <button 
           onClick={() => navigate("/statistics")}
-          className="w-full bg-brand hover:bg-brand-hover text-brand-dark font-black py-4 px-8 rounded-2xl transition-all transform hover:scale-105 active:scale-95 shadow-[0_10px_30px_rgba(199,154,0,0.2)] uppercase text-xs tracking-[0.2em]"
+          className="w-full bg-brand hover:bg-brand-hover text-brand-dark font-black py-4 rounded-2xl transition-all transform hover:scale-105 active:scale-95 shadow-xl uppercase text-xs tracking-widest"
         >
           Analizza Statistiche
         </button>
       </div>
-      
-      {/* Torna alla Home */}
-      <button 
-        onClick={() => navigate("/")}
-        className="mt-8 text-white/20 hover:text-brand text-[10px] font-bold uppercase tracking-widest transition-colors"
-      >
-        Torna alla Dashboard
-      </button>
     </div>
   );
 }
 
-
-function Statistics({ user }: GameProps) {
-  const [items, setItems] = useState<string[]>([]);
-  const [type, setType] = useState<"artists" | "tracks">("artists");
-  const [range, setRange] = useState("medium_term");
-
-  useEffect(() => {
-    async function loadData() {
-      if (!user) return;
-      const response = await fetchTopUser(type, range);
-      setItems(response.data || []);
-    }
-    loadData();
-  }, [type, range]); 
-
-  return (
-    <div>
-      {/* Selettore Tipo */}
-      <button onClick={() => setType("artists")}>Top Artisti</button>
-      <button onClick={() => setType("tracks")}>Top Brani</button>
-
-      {/* Selettore Periodo */}
-      <select onChange={(e) => setRange(e.target.value)} value={range}>
-        <option value="short_term">Ultimo mese</option>
-        <option value="medium_term">Ultimi 6 mesi</option>
-        <option value="long_term">Sempre</option>
-      </select>
-
-      <ul>
-        {items.map((name, i) => <li key={i}>{name}</li>)}
-      </ul>
-    </div>
-  );
-} 
-
-
-
-
+/**
+ * Componente Root dell'applicazione.
+ * Gestisce la persistenza della sessione al caricamento e definisce l'alberatura delle rotte.
+ */
 export default function App() {
-  // Specifichiamo che lo stato può essere o SpotifyUser o null
   const [user, setUser] = useState<SpotifyUser | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
+  /**
+   * Effetto di inizializzazione: verifica se esiste una sessione attiva (cookie/token)
+   * al primo rendering della pagina.
+   */
   useEffect(() => {
     async function initAuth() {
       try {
@@ -187,7 +145,7 @@ export default function App() {
           setUser(userData as SpotifyUser);
         }
       } catch (err) {
-        console.error("Sessione non valida" , err);
+        console.error("Sessione non valida o scaduta", err);
       } finally {
         setLoading(false);
       }
@@ -195,23 +153,19 @@ export default function App() {
     initAuth();
   }, []);
 
-  if (loading) return <h1>Verifica sessione in corso...</h1>;
+  // Visualizzazione di uno spinner durante il controllo della sessione
+  if (loading) return (
+    <div className="min-h-screen bg-brand-dark flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-brand border-t-transparent rounded-full animate-spin"></div>
+    </div>
+  );
 
   return (
     <Routes>
       <Route path="/" element={<Home />} />
-      <Route 
-        path="/callback" 
-        element={<Callback onLogin={(userData: SpotifyUser) => setUser(userData)} />} 
-      />
-        <Route 
-          path="/game" 
-          element={<Game user={user} />} 
-        />
-        <Route 
-          path="/statistics" 
-          element={<Statistics user={user} />}
-        />
+      <Route path="/callback" element={<Callback onLogin={setUser} />} />
+      <Route path="/game" element={<Game user={user} />} />
+      <Route path="/statistics" element={<Statistics user={user} />} />
     </Routes>
   );
 }

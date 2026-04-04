@@ -7,25 +7,32 @@ export default {
   theme: {
     extend: {
       colors: {
+        'brand-dark': '#020203',
         brand: {
-          DEFAULT: '#c79a00',
-          hover: '#e6b100',
-          dark: '#0a0a0a',
-        },
-      },
-      keyframes: {
-        'float-complex': {
-          '0%, 100%': { transform: 'translate(0, 0) rotate(0deg)', opacity: '0.3' },
-          '33%': { transform: 'translate(45px, -70px) rotate(15deg)', opacity: '0.7' },
-          '66%': { transform: 'translate(-35px, -110px) rotate(-15deg)', opacity: '0.5' },
-        },
-      },
-      animation: {
-        'music-float': 'float-complex 12s infinite ease-in-out',
+          DEFAULT: '#c79a00',    // Oro BeatMatch
+          hover: '#ffd700',
+          amber: '#ffae00',
+          light: '#f3cf5f',
+        }
       },
       backgroundImage: {
-        'spotlight': 'radial-gradient(400px at var(--mouse-x) var(--mouse-y), rgba(255, 210, 0, 0.35) 0%, rgba(200, 155, 0, 0.1) 40%, transparent 80%)',
-        'spotlight-diffuse': 'radial-gradient(800px at var(--mouse-x) var(--mouse-y), rgba(200, 155, 0, 0.05) 0%, transparent 100%)',
+        'glass-gradient': 'linear-gradient(to bottom, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01))',
+      },
+      animation: {
+        'music-float': 'music-float 15s linear infinite',
+        'clock-slow': 'clock-spin 12s linear infinite',
+      },
+      keyframes: {
+        'music-float': {
+          '0%': { transform: 'translate(0, 0) rotate(0deg)', opacity: '0' },
+          '15%': { opacity: '0.03' },
+          '85%': { opacity: '0.03' },
+          '100%': { transform: 'translate(25px, -120px) rotate(15deg)', opacity: '0' },
+        },
+        'clock-spin': {
+          'from': { transform: 'rotate(0deg)' },
+          'to': { transform: 'rotate(360deg)' },
+        }
       }
     },
   },

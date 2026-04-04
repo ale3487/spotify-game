@@ -1,32 +1,40 @@
+/**
+ * @file spotify.controller.js
+ * @description Controller principale per la gestione dell'integrazione Spotify.
+ * Gestisce il flusso OAuth2 PKCE, la persistenza del profilo utente su Firestore,
+ * la generazione di sessioni JWT e il recupero delle statistiche (Top Artists/Tracks) con caching.
+ */
+
 import fetch from "node-fetch";
 import { db, admin } from "../firebase.js";
 import jwt from "jsonwebtoken";
 import { getValidAccessToken } from "../service/spotifyService.js";
 
+/**
+ * Gestisce il callback di autenticazione Spotify.
+ * Scambia il 'code' con i token, salva l'utente su Firestore e imposta il cookie di sessione.
+ */
 export const loginSpotify = async (req, res) => {
-  const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
-  const CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
-  const REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI;
-  
-  // USA SEMPRE IL FILE .ENV - Se manca, il server deve dare errore in sviluppo
-  const JWT_SECRET = process.env.JWT_SECRET;
+  const { SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REDIRECT_URI, JWT_SECRET, NODE_ENV } = process.env;
+
   if (!JWT_SECRET) {
-    console.error("ERRORE: JWT_SECRET non definito nel file .env!");
+    console.error("[CRITICAL] JWT_SECRET non configurato nel file .env");
   }
 
   const encodeBasicAuth = () =>
-    Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64");
+    Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString("base64");
 
   const { code, code_verifier } = req.body;
   if (!code || !code_verifier)
-    return res.status(400).json({ error: "Missing code or verifier" });
+    return res.status(400).json({ error: "Codice o verifier mancanti." });
 
   try {
+    // 1. Richiesta Token a Spotify
     const params = new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      redirect_uri: REDIRECT_URI,
-      client_id: CLIENT_ID,
+      redirect_uri: SPOTIFY_REDIRECT_URI,
+      client_id: SPOTIFY_CLIENT_ID,
       code_verifier,
     });
 
@@ -44,24 +52,27 @@ export const loginSpotify = async (req, res) => {
 
     const { access_token, refresh_token, expires_in } = tokenData;
 
+    // 2. Recupero dati Profilo
     const profileRes = await fetch("https://api.spotify.com/v1/me", {
       headers: { Authorization: `Bearer ${access_token}` },
     });
     const profile = await profileRes.json();
 
+    // 3. Persistenza Utente su Firestore
     await db.collection("users").doc(profile.id).set({
       spotifyId: profile.id,
       username: profile.display_name,
       email: profile.email,
       images: profile.images[0] || null,
-      defaultAvatarId: profile.images.length === 0 ?  Math.floor(Math.random() * 5) + 1 : null,
+      // Avatar casuale se l'utente non ha una foto profilo Spotify
+      defaultAvatarId: profile.images.length === 0 ? Math.floor(Math.random() * 5) + 1 : null,
       accessToken: access_token,
       refreshToken: refresh_token,
       tokenExpiresAt: Date.now() + expires_in * 1000,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // --- LOGICA COOKIES E JWT ---
+    // 4. Generazione Sessione JWT
     const userData = {
       spotifyId: profile.id,
       display_name: profile.display_name,
@@ -71,9 +82,10 @@ export const loginSpotify = async (req, res) => {
 
     const sessionToken = jwt.sign(userData, JWT_SECRET, { expiresIn: "7d" });
 
+    // 5. Configurazione Cookie HttpOnly
     res.cookie("session_token", sessionToken, {
       httpOnly: true, 
-      secure: process.env.NODE_ENV === "production", 
+      secure: NODE_ENV === "production", 
       sameSite: "Lax", 
       maxAge: 7 * 24 * 60 * 60 * 1000, 
     });
@@ -81,43 +93,59 @@ export const loginSpotify = async (req, res) => {
     res.json(userData);
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
+    console.error("[CONTROLLER ERROR] Login fallito:", err);
+    res.status(500).json({ error: "Errore interno del server durante il login." });
   }
 };
 
-// Funzione per ottenere i dati dell'utente loggato, usando il cookie JWT per autenticazione
+/**
+ * Restituisce i dati dell'utente contenuti nel JWT.
+ * Utilizzata per il ripristino della sessione al refresh del frontend.
+ */
 export const getMe = async (req, res) => {
-  // Se arrivi qui, il middleware 'authenticate' ha già verificato il cookie
-  // e ha salvato i dati in req.user
   if (req.user) {
     res.json(req.user);
   } else {
-    res.status(401).json({ error: "User not found" });
+    res.status(401).json({ error: "Sessione non valida." });
   }
 };
 
-
-// Backend: controllers/spotify.controller.js
-
+/**
+ * Recupera artisti o brani preferiti dell'utente.
+ * Implementa una logica di cache su Firestore (validità 24h) per ottimizzare le performance.
+ */
 export const TopUser = async (req, res) => {
-  const spotifyId = req.user?.spotifyId; 
-  
-  // Leggiamo i parametri dalla URL (es: ?type=artists&range=long_term)
-  // Impostiamo dei valori di default se mancano
-  const operation = req.query.type || "artists"; // "artists" o "tracks"
-  const time_range = req.query.range || "medium_term"; // "short_term", "medium_term", "long_term"
+  const spotifyId = req.user?.spotifyId;
+  const operation = req.query.type || "artists"; 
+  const time_range = req.query.range || "medium_term";
 
-  if (!spotifyId) {
-    return res.status(401).json({ error: "Utente non autenticato" });
-  }
+  if (!spotifyId) return res.status(401).json({ error: "Non autorizzato." });
 
   try {
-    const accessToken = await getValidAccessToken(spotifyId);
+    const statsRef = db.collection("user_stats").doc(spotifyId);
+    const doc = await statsRef.get();
 
-    // Costruiamo la URL dinamica per Spotify
-    // Endpoint ufficiale: https://api.spotify.com/v1/me/top/${operation}
-    const spotifyUrl = `https://api.spotify.com/v1/me/top/${operation}?time_range=${time_range}&limit=25`;
+    // Verifica validità Cache (24 ore)
+    if (doc.exists) {
+      const existingData = doc.data();
+      const lastUpdated = existingData.lastUpdated?.toDate();
+      const now = new Date();
+      
+      const hoursDiff = (now - lastUpdated) / (1000 * 60 * 60);
+      if (hoursDiff < 24 && existingData[operation]?.[time_range]) {
+        return res.json({ 
+          data: existingData[operation][time_range].items, 
+          total: existingData[operation][time_range].total,
+          type: operation, 
+          range: time_range,
+          cached: true
+        });
+      }
+    }
+
+    // Cache assente o scaduta: Richiesta a Spotify API
+    const accessToken = await getValidAccessToken(spotifyId);
+    const spotifyUrl = `https://api.spotify.com/v1/me/top/${operation}?time_range=${time_range}&limit=50`;
 
     const response = await fetch(spotifyUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -128,15 +156,53 @@ export const TopUser = async (req, res) => {
       return res.status(response.status).json(errorData);
     }
 
-    const data = await response.json();
+    const spotifyData = await response.json();
 
-    // Estraiamo i nomi (funziona sia per artisti che per tracce)
-    const results = data.items.map(item => item.name);
+    // Normalizzazione dati per il frontend
+    const processedResults = spotifyData.items.map(item => {
+      const baseInfo = {
+        id: item.id,
+        name: item.name,
+        image: operation === "artists" 
+          ? item.images?.[0]?.url 
+          : item.album?.images?.[0]?.url,
+        link: item.external_urls?.spotify
+      };
 
-    res.json({ data: results, type: operation, range: time_range });
+      if (operation === "tracks") {
+        return {
+          ...baseInfo,
+          artist: item.artists?.map(a => a.name).join(', ') || "Artista sconosciuto"
+        };
+      }
+      return baseInfo;
+    });
+
+    const responseBody = { 
+      data: processedResults, 
+      total: spotifyData.total, 
+      type: operation, 
+      range: time_range, 
+      cached: false 
+    };
+
+    // Aggiornamento Cache su Firestore (Usa merge:true per non sovrascrivere altre statistiche)
+    await statsRef.set({
+      spotifyId,
+      lastUpdated: new Date(),
+      [operation]: {
+        ...doc.data()?.[operation],
+        [time_range]: { 
+            items: processedResults, 
+            total: spotifyData.total 
+        }
+      }
+    }, { merge: true });
+
+    res.json(responseBody);
 
   } catch (err) {
-    console.error("Errore in TopUser:", err);
-    res.status(500).json({ error: "Server error" });
+    console.error("[CONTROLLER ERROR] Errore TopUser:", err);
+    res.status(500).json({ error: "Errore durante il recupero dei dati da Spotify." });
   }
 };

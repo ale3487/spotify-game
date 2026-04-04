@@ -1,49 +1,89 @@
+/**
+ * @file spotifyService.js
+ * @description Gestore dei token OAuth2 per Spotify. Implementa la logica di 
+ * persistenza su Firestore e il rinnovo automatico (Refresh Flow) per garantire
+ * sessioni utente ininterrotte.
+ */
+
 import fetch from "node-fetch";
 import { db } from "../firebase.js";
+
 
 const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
 const CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
 
+/**
+ * Genera l'header di autorizzazione Basic richiesto da Spotify per lo scambio token.
+ * @returns {string} Stringa Base64 nel formato client_id:client_secret
+ */
 const encodeBasicAuth = () =>
   Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64");
 
-// Funzione per ottenere un access token valido, con refresh automatico se necessario
+/**
+ * Recupera un Access Token valido dal database.
+ * Se il token è prossimo alla scadenza (finestra di 60s), avvia automaticamente
+ * la procedura di refresh tramite le API di Spotify e aggiorna Firestore.
+ * * @param {string} spotifyId - L'ID univoco dell'utente Spotify (document ID in Firestore).
+ * @returns {Promise<string>} L'access token pronto all'uso.
+ * @throws {Error} Se l'utente non esiste o se il refresh fallisce.
+ */
 export const getValidAccessToken = async (spotifyId) => {
-  const userDoc = await db.collection("users").doc(spotifyId).get();
+  const userRef = db.collection("users").doc(spotifyId);
+  const userDoc = await userRef.get();
 
-  if (!userDoc.exists) throw new Error("User not found");
+  if (!userDoc.exists) {
+    throw new Error(`Utente [${spotifyId}] non trovato nel database.`);
+  }
 
   let { accessToken, refreshToken, tokenExpiresAt } = userDoc.data();
 
-  // Se token scaduto -> refresh automatico
-  if (Date.now() > tokenExpiresAt - 60000) {
+  /** * LOGICA DI REFRESH
+   * Utilizziamo un buffer di 60.000ms (1 minuto) per prevenire fallimenti nelle chiamate 
+   * asincrone dovuti a latenza di rete proprio durante la scadenza.
+   */
+  if (Date.now() > (tokenExpiresAt - 60000)) {
     const params = new URLSearchParams({
       grant_type: "refresh_token",
       refresh_token: refreshToken,
       client_id: CLIENT_ID,
     });
 
-    const response = await fetch("https://accounts.spotify.com/api/token", {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${encodeBasicAuth()}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: params.toString(),
-    });
+    try {
+      const response = await fetch("https://accounts.spotify.com/api/token", {
+        method: "POST",
+        headers: {
+          "Authorization": `Basic ${encodeBasicAuth()}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: params.toString(),
+      });
 
-    const data = await response.json();
-    if (data.error) throw new Error("Refresh failed");
-    // Spotify potrebbe non restituire un nuovo refresh token, quindi mantieni quello vecchio se non presente
-    const newRefreshToken = data.refresh_token || refreshToken;
-    accessToken = data.access_token;
-    tokenExpiresAt = Date.now() + data.expires_in * 1000;
-    // aggiorna Firestore con i nuovi token
-    await db.collection("users").doc(spotifyId).update({
-      accessToken,
-      refreshToken: newRefreshToken,
-      tokenExpiresAt,
-    });
+      const data = await response.json();
+      
+      if (!response.ok || data.error) {
+        throw new Error(data.error_description || "Impossibile rinnovare il token.");
+      }
+
+      /**
+       * Spotify potrebbe non restituire un nuovo refresh_token se quello attuale 
+       * è ancora valido a lungo termine. In tal caso, preserviamo quello esistente.
+       */
+      accessToken = data.access_token;
+      const newRefreshToken = data.refresh_token || refreshToken;
+      tokenExpiresAt = Date.now() + (data.expires_in * 1000);
+
+      // Sincronizzazione atomica con Firestore
+      await userRef.update({
+        accessToken,
+        refreshToken: newRefreshToken,
+        tokenExpiresAt,
+        lastRefresh: new Date().toISOString() // Utile per debug
+      });
+
+    } catch (error) {
+      console.error(`[AUTH ERROR] Refresh fallito per utente ${spotifyId}:`, error.message);
+      throw error;
+    }
   }
 
   return accessToken;
