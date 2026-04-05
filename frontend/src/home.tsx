@@ -10,7 +10,7 @@ import { loginSpotify } from './spotify.service';
 // --- IMPORT COMPONENTI MODULARI ---
 import { NeonBackground } from './components/NeonBackground';
 import { MouseTracker } from './components/MouseTracker';
-import { Logo } from './components/logo';
+import { Logo } from './components/Logo';
 
 /**
  * Componente Icona Spotify (SVG).

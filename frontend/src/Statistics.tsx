@@ -1,23 +1,20 @@
 /**
  * @file Statistics.tsx
  * @description Componente dashboard per la visualizzazione delle statistiche utente.
- * Gestisce il fetching asincrono, la normalizzazione dei dati da diverse fonti (Cache vs Live)
- * e il calcolo euristico del tempo di ascolto.
+ * Gestisce il fetching asincrono, la normalizzazione dei dati e il supporto offline.
  */
 
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { fetchTopUser } from "./spotify.service";
 import type { SpotifyUser } from './App';
-import { Logo } from './components/logo'; 
+import { Logo } from './components/Logo'; 
 
 // --- IMPORT COMPONENTI MODULARI ---
 import { NeonBackground } from './components/NeonBackground';
 import { MouseTracker } from './components/MouseTracker';
 
-/**
- * Struttura dati normalizzata proveniente dalla cache di Firebase.
- */
+// --- INTERFACCE DATI ---
 interface CachedItem {
   id: string;
   name: string;
@@ -26,9 +23,6 @@ interface CachedItem {
   artist?: string;
 }
 
-/**
- * Oggetto artista grezzo restituito direttamente dalle API di Spotify.
- */
 interface SpotifyArtistRaw {
   id: string;
   name: string;
@@ -36,9 +30,6 @@ interface SpotifyArtistRaw {
   external_urls: { spotify: string };
 }
 
-/**
- * Oggetto brano grezzo restituito direttamente dalle API di Spotify.
- */
 interface SpotifyTrackRaw {
   id: string;
   name: string;
@@ -47,10 +38,8 @@ interface SpotifyTrackRaw {
   external_urls: { spotify: string };
 }
 
-/** Unione dei tipi possibili per la gestione polimorfica dei dati in ingresso. */
 type RawItem = CachedItem | SpotifyArtistRaw | SpotifyTrackRaw;
 
-/** Struttura della risposta del backend/servizio di login. */
 interface BackendResponse {
   data: RawItem[];
   total?: number;
@@ -59,7 +48,6 @@ interface BackendResponse {
   cached?: boolean;
 }
 
-/** Interfaccia normalizzata utilizzata dal frontend per il rendering della UI. */
 interface TrackOrArtist {
   id: string;
   artist?: string; 
@@ -68,13 +56,12 @@ interface TrackOrArtist {
   link: string;
 }
 
-/**
- * Componente Statistics.
- * Visualizza classifiche di brani/artisti e stime di ascolto.
- * * @param props - Proprietà del componente.
- * @param props.user - L'oggetto utente autenticato. Se null, il componente reindirizza alla Home.
- */
-const Statistics = ({ user }: { user: SpotifyUser | null }) => {
+interface StatisticsProps {
+  user: SpotifyUser | null;
+  isOffline?: boolean;
+}
+
+const Statistics = ({ user, isOffline }: StatisticsProps) => {
   const [items, setItems] = useState<TrackOrArtist[]>([]);
   const [totalItems, setTotalItems] = useState<number>(0);
   const [type, setType] = useState<'artists' | 'tracks'>('artists');
@@ -82,10 +69,6 @@ const Statistics = ({ user }: { user: SpotifyUser | null }) => {
   const [loading, setLoading] = useState<boolean>(true);
   const navigate = useNavigate();
 
-  /**
-   * Effetto di caricamento dati.
-   * Si attiva al cambio di 'type' (artisti/brani) o 'range' (temporale).
-   */
   useEffect(() => {
     if (!user) return;
     
@@ -95,13 +78,7 @@ const Statistics = ({ user }: { user: SpotifyUser | null }) => {
         const response: BackendResponse = await fetchTopUser(type, range);
         const rawItems = response.data || [];
         
-        /**
-         * Normalizzazione dei dati: trasforma i vari formati (Spotify Raw vs Cache) 
-         * in un unico formato TrackOrArtist compatibile con la tabella UI.
-         */
         const formattedData: TrackOrArtist[] = rawItems.map((item: RawItem) => {
-          
-          // TYPE GUARD 1: Verifica se l'item è già processato (Cache)
           if ('link' in item && typeof item.link === 'string') {
             return {
               id: item.id,
@@ -112,7 +89,6 @@ const Statistics = ({ user }: { user: SpotifyUser | null }) => {
             };
           }
 
-          // TYPE GUARD 2: Verifica se l'item è un brano Live (Spotify API)
           if ('artists' in item) {
             const track = item as SpotifyTrackRaw;
             return {
@@ -124,7 +100,6 @@ const Statistics = ({ user }: { user: SpotifyUser | null }) => {
             };
           }
 
-          // FALLBACK: Gestione come Artista Live (Spotify API)
           const artist = item as SpotifyArtistRaw;
           return {
             id: artist.id,
@@ -148,16 +123,11 @@ const Statistics = ({ user }: { user: SpotifyUser | null }) => {
     loadData();
   }, [type, range, user]);
 
-  /**
-   * Calcolo memoizzato della stima dei minuti di ascolto.
-   * Utilizza moltiplicatori basati sul periodo selezionato per generare un'approssimazione verosimile.
-   */
   const estimatedMinutes = useMemo(() => {
     const multiplier = range === 'long_term' ? 48 : range === 'medium_term' ? 20 : 7;
     return Math.floor(totalItems * multiplier * 3.2);
   }, [totalItems, range]);
 
-  // Protezione della rotta: Reindirizzamento se la sessione è assente
   if (!user) return <Navigate to="/" />;
 
   return (
@@ -167,22 +137,29 @@ const Statistics = ({ user }: { user: SpotifyUser | null }) => {
 
       <main className="max-w-6xl mx-auto space-y-8 relative z-10">
         
-        {/* HEADER: Navigazione e Brand */}
+        {/* HEADER: Navigazione, Brand e Badge Offline */}
         <header className="flex justify-between items-center px-4">
           <div className="pointer-events-auto flex items-center gap-4">
             <Logo size="md" />
+            
+            {/* BADGE OFFLINE */}
+            {isOffline && (
+              <div className="bg-red-500/10 text-red-500 border border-red-500/20 text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-widest animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.1)]">
+                Modalita Offline
+              </div>
+            )}
           </div>
+          
           <button 
-            onClick={() => navigate('/game')} 
+            onClick={() => navigate('/dashboard')} 
             className="text-[10px] font-black text-brand uppercase tracking-[0.2em] border-b border-brand/10 hover:border-brand transition-all pb-1 outline-none"
           >
             ← Ritorno alla pagina precedente
           </button>
         </header>
 
-        {/* WIDGETS SECTION: Profilo Utente e Statistiche Aggregate */}
+        {/* WIDGETS SECTION */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* User Card */}
           <div className="bg-glass-gradient backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-6 flex items-center gap-6 shadow-2xl transition-all duration-500 hover:border-white/20">
             <div className="relative shrink-0">
               <div className="absolute inset-0 rounded-full bg-brand/20 blur-2xl animate-pulse"></div>
@@ -198,7 +175,6 @@ const Statistics = ({ user }: { user: SpotifyUser | null }) => {
             </div>
           </div>
 
-          {/* Time Estimate Widget */}
           <div className="md:col-span-2 bg-glass-gradient backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-6 relative overflow-hidden flex items-center justify-between shadow-2xl group transition-all duration-500 hover:border-white/20">
             <div className="relative z-10">
               <h3 className="text-[9px] font-black uppercase tracking-[0.4em] text-slate-400 mb-2">stima Tempo di ascolto</h3>
@@ -220,10 +196,8 @@ const Statistics = ({ user }: { user: SpotifyUser | null }) => {
           </div>
         </div>
 
-        {/* CLASSIFICA SECTION: Tabella dinamica per Artisti e Brani */}
+        {/* CLASSIFICA SECTION */}
         <section className="bg-glass-gradient backdrop-blur-3xl border border-white/10 rounded-[3rem] overflow-hidden flex flex-col h-[620px] shadow-[0_30px_100px_rgba(0,0,0,0.5)] relative transition-all duration-500 hover:border-white/20">
-          
-          {/* Controls: Filtri Tipo e Range Temporale */}
           <div className="p-8 border-b border-white/10 flex flex-col sm:flex-row justify-between items-center gap-6 bg-white/[0.02]">
             <div className="bg-white/5 p-1.5 rounded-2xl border border-white/5 flex shadow-inner backdrop-blur-md">
               <button 
@@ -251,7 +225,6 @@ const Statistics = ({ user }: { user: SpotifyUser | null }) => {
             </select>
           </div>
 
-          {/* List Area: Scrolling table con custom scrollbar */}
           <div className="flex-1 overflow-y-auto custom-scrollbar px-8 py-4">
             <table className="w-full border-separate border-spacing-y-4">
               <tbody>
@@ -263,11 +236,9 @@ const Statistics = ({ user }: { user: SpotifyUser | null }) => {
                   </tr>
                 ) : items.map((item, index) => (
                   <tr key={item.id} className="group bg-white/[0.02] hover:bg-white/[0.06] transition-all duration-300 rounded-2xl overflow-hidden shadow-sm">
-                    {/* Rank Number */}
                     <td className="p-4 w-16 text-2xl font-black italic text-white/5 group-hover:text-brand/20 transition-all">
                       {(index + 1).toString().padStart(2, '0')}
                     </td>
-                    {/* Item Info */}
                     <td className="p-2">
                       <div className="flex items-center gap-6">
                         <div className="relative group/img">
@@ -288,7 +259,6 @@ const Statistics = ({ user }: { user: SpotifyUser | null }) => {
                         </div>
                       </div>
                     </td>
-                    {/* Link External */}
                     <td className="p-4 text-right">
                       <a 
                         href={item.link} 
@@ -309,7 +279,6 @@ const Statistics = ({ user }: { user: SpotifyUser | null }) => {
         </section>
       </main>
 
-      {/* Scoped CSS per componenti UI specifici */}
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 3px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(199, 154, 0, 0.4); border-radius: 10px; }

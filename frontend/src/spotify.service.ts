@@ -113,22 +113,26 @@ export async function exchangeToken() {
   }
 }
 
-/**
- * Verifica se esiste una sessione attiva lato backend.
- * Da utilizzare all'avvio dell'app per il login automatico.
- * @returns Dati utente se la sessione è valida, null altrimenti.
- */
 export async function checkSession() {
   try {
     const res = await fetch(`${BACKEND_URL}/api/spotify/me`, {
       method: "GET",
       credentials: "include",
     });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch (err) {
-    console.error("Errore durante il controllo sessione:", err);
+
+    if (res.ok) {
+      const userData = await res.json();
+      // Salviamo una copia per le emergenze offline
+      localStorage.setItem('beatmatch_user_backup', JSON.stringify(userData));
+      return userData;
+    }
+    
     return null;
+  } catch (err) {
+    console.warn("Offline o errore server, cerco nel backup locale...");
+    const backup = localStorage.getItem('beatmatch_user_backup');
+    console.error("Errore durante il controllo sessione:", err);
+    return backup ? JSON.parse(backup) : null;
   }
 }
 
@@ -150,3 +154,26 @@ export async function fetchTopUser(type: "artists" | "tracks", range: string) {
   
   return await res.json();
 }
+
+/**
+ * Verifica se esiste una specifica cache e se contiene dati.
+ * @param cacheName Il nome della cache da controllare
+ * @returns Promise<boolean>
+ */
+export const checkCacheStatus = async (cacheName: string = 'beatmatch-api-cache'): Promise<boolean> => {
+  if (!('caches' in window)) return false;
+
+  try {
+    const cacheNames = await caches.keys();
+    if (!cacheNames.includes(cacheName)) return false;
+
+    const cache = await caches.open(cacheName);
+    const requests = await cache.keys();
+    
+    // Ritorna true se ci sono almeno delle richieste salvate
+    return requests.length > 0;
+  } catch (error) {
+    console.error("Errore nel controllo cache:", error);
+    return false;
+  }
+};
