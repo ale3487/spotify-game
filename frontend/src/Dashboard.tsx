@@ -1,13 +1,15 @@
 /**
  * @file Dashboard.tsx
- * @description Hub principale dell'utente. 
- * Integra lo sfondo a note musicali, l'effetto torcia e la gestione della cache offline.
+ * @description Hub principale con supporto Creazione e Join stanza.
  */
 
 import { useState, useEffect } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { checkCacheStatus } from './spotify.service'; 
-import type { SpotifyUser } from './App';
+import type { SpotifyUser } from './types/user.types';
+
+// --- IMPORT SOCKET LOGIC ---
+import { useLobby } from './hooks/useLobby';
 
 // --- IMPORT COMPONENTI CORE ---
 import { NeonBackground } from './components/NeonBackground';
@@ -17,35 +19,52 @@ import { Logo } from './components/Logo';
 const Dashboard = ({ user }: { user: SpotifyUser | null }) => {
   const navigate = useNavigate();
   
-  // Stati per la gestione della connettività
+  // Estraiamo le funzioni necessarie dal context
+  const { createRoom, joinRoom, room, error: lobbyError } = useLobby();
+  
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [hasCache, setHasCache] = useState(false);
+  
+  // Stato per il codice della stanza da inserire
+  const [joinCode, setJoinCode] = useState("");
+
+  // Monitoraggio navigazione automatica alla lobby
+  useEffect(() => {
+    if (room?.roomId) {
+      navigate(`/lobby/${room.roomId}`);
+    }
+  }, [room, navigate]);
 
   useEffect(() => {
-    // Controllo disponibilità dati in cache per modalità offline
     checkCacheStatus().then(setHasCache);
-
     const handleStatusChange = () => {
       const online = navigator.onLine;
       setIsOnline(online);
       if (online) checkCacheStatus().then(setHasCache);
     };
-
     window.addEventListener('online', handleStatusChange);
     window.addEventListener('offline', handleStatusChange);
-
     return () => {
       window.removeEventListener('online', handleStatusChange);
       window.removeEventListener('offline', handleStatusChange);
     };
   }, []);
 
-  // Protezione rotta: se l'utente non è loggato, torna alla landing
   if (!user) return <Navigate to="/" />;
 
+  const handleStartGame = () => {
+    if (isOnline && user) createRoom(user);
+  };
+
   /**
-   * Determina l'avatar di fallback basandosi sullo Spotify ID se l'immagine manca.
+   * AZIONE: Partecipa a una stanza esistente
    */
+  const handleJoinGame = () => {
+    if (isOnline && user && joinCode.length === 5) {
+      joinRoom(joinCode.toUpperCase(), user);
+    }
+  };
+
   const getAvatarId = () => {
     if (user.defaultAvatarId) return user.defaultAvatarId;
     const charCodeSum = user.spotifyId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
@@ -65,102 +84,84 @@ const Dashboard = ({ user }: { user: SpotifyUser | null }) => {
 
   return (
     <div className="min-h-screen bg-[#020203] text-white flex flex-col items-center justify-center relative overflow-hidden selection:bg-brand selection:text-black">
-      
-      {/* SFONDO DINAMICO E TRACKER MOUSE */}
       <NeonBackground />
       <MouseTracker />
 
       <main className="max-w-md w-full px-6 relative z-10">
-        
-        {/* HEADER LOGO*/}
         <div className="flex justify-center mb-8">
            <Logo size="md" />
         </div>
 
-        {/* DASHBOARD CARD (GLASSMORPHISM) */}
         <div className="bg-glass-gradient backdrop-blur-3xl border border-white/10 rounded-[3rem] p-10 text-center shadow-2xl relative transition-all duration-500 hover:border-white/20">
           
-          {/* BADGE OFFLINE (Sincero: appare solo se non c'è rete) */}
-          {!isOnline && (
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-red-500/10 text-red-500 border border-red-500/20 text-[9px] font-black px-4 py-1.5 rounded-full uppercase tracking-[0.2em] animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.1)]">
-              Offline Mode
-            </div>
-          )}
-
-          {/* AVATAR SECTION (Statica, senza effetti hover) */}
-          <div className="mb-10 flex justify-center">
+          {/* AVATAR SECTION */}
+          <div className="mb-8 flex justify-center">
             {user.images && user.images.length > 0 ? (
               <img 
                 src={user.images[0].url} 
                 alt="Profile" 
-                className={`w-36 h-36 rounded-full border-4 object-cover shadow-2xl transition-all duration-500 ${isOnline ? 'border-brand/40' : 'border-white/10 grayscale opacity-70'}`} 
+                className={`w-32 h-32 rounded-full border-4 object-cover shadow-2xl transition-all duration-500 ${isOnline ? 'border-brand/40' : 'border-white/10 grayscale opacity-70'}`} 
               />
             ) : (
-              <div className={`w-36 h-36 rounded-full border-4 flex items-center justify-center shadow-lg transition-all duration-500 ${avatarStyles[avatarId]} ${!isOnline && 'grayscale opacity-70 border-white/10'}`}>
-                <svg className="w-16 h-16" fill="currentColor" viewBox="0 0 24 24">
+              <div className={`w-32 h-32 rounded-full border-4 flex items-center justify-center shadow-lg transition-all duration-500 ${avatarStyles[avatarId]}`}>
+                <svg className="w-14 h-14" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
                 </svg>
               </div>
             )}
           </div>
 
-          {/* INFO UTENTE */}
-          <div className="space-y-2 mb-10">
-            <h1 className="text-4xl font-black tracking-tighter uppercase italic text-white leading-none">
+          <div className="space-y-1 mb-8">
+            <h1 className="text-3xl font-black tracking-tighter uppercase italic text-white leading-none">
               {user.display_name}
             </h1>
-            <p className="text-[10px] font-black uppercase tracking-[0.4em] text-brand/60 italic">
-              User Dashboard
-            </p>
           </div>
 
-          {/* PULSANTI DI AZIONE */}
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-4">
             
-            {/* MULTIPLAYER (Solo Online) */}
+            {/* BOTTONE CREA (HOST) */}
             <button 
               disabled={!isOnline}
-              onClick={() => navigate("/lobby")}
-              className={`group relative overflow-hidden w-full font-black py-5 rounded-[1.5rem] transition-all transform uppercase text-[10px] tracking-[0.2em] shadow-xl
-                ${isOnline 
-                  ? 'bg-emerald-500 text-brand-dark hover:scale-[1.03] active:scale-95' 
-                  : 'bg-white/5 text-white/10 cursor-not-allowed border border-white/5'
-                }`}
+              onClick={handleStartGame}
+              className={`group relative overflow-hidden w-full font-black py-4 rounded-2xl transition-all transform uppercase text-[10px] tracking-[0.2em] shadow-xl
+                ${isOnline ? 'bg-emerald-500 text-black hover:scale-[1.02]' : 'bg-white/5 text-white/10'}`}
             >
-              <span className="relative z-10">
-                {isOnline ? "Inizia Quiz Prova" : "Multiplayer Locked"}
-              </span>
-              {isOnline && (
-                <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
-              )}
+              Crea Nuova Stanza
             </button>
 
-            {/* STATISTICHE (Online o Cache presente) */}
+            {/* SEZIONE JOIN (PLAYER) */}
+            <div className="flex flex-col gap-2 p-4 bg-white/5 rounded-2xl border border-white/10">
+              <input 
+                type="text"
+                placeholder="Codice Stanza"
+                value={joinCode}
+                maxLength={5}
+                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                className="bg-transparent text-center font-black tracking-[0.5em] text-lg uppercase focus:outline-none placeholder:text-white/20 placeholder:tracking-normal placeholder:text-[10px]"
+              />
+              <button 
+                disabled={!isOnline || joinCode.length !== 5}
+                onClick={handleJoinGame}
+                className={`w-full font-black py-3 rounded-xl transition-all uppercase text-[9px] tracking-[0.2em]
+                  ${isOnline && joinCode.length === 5 ? 'bg-brand text-black' : 'bg-white/5 text-white/20'}`}
+              >
+                Entra in Partita
+              </button>
+            </div>
+
+            {lobbyError && (
+              <p className="text-red-500 text-[9px] font-black uppercase tracking-widest animate-pulse">
+                {lobbyError}
+              </p>
+            )}
+
             <button 
               disabled={!canShowStats}
               onClick={() => navigate("/statistics")}
-              className={`group relative overflow-hidden w-full font-black py-5 rounded-[1.5rem] transition-all transform uppercase text-[10px] tracking-[0.2em] shadow-xl
-                ${canShowStats 
-                  ? 'bg-brand text-brand-dark hover:scale-[1.03] active:scale-95 shadow-[0_10px_30px_rgba(199,154,0,0.2)]' 
-                  : 'bg-white/5 text-white/10 cursor-not-allowed border border-white/5'
-                }`}
+              className="w-full font-black py-4 rounded-2xl transition-all uppercase text-[10px] tracking-[0.2em] border border-white/10 text-white/60 hover:bg-white/5"
             >
-              <span className="relative z-10">
-                {canShowStats ? "Analizza Statistiche" : "Statistiche Offline"}
-              </span>
-              {canShowStats && (
-                <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
-              )}
+              Statistiche
             </button>
-
-            {/* MESSAGGIO SUPPORTO OFFLINE */}
-            {!isOnline && !hasCache && (
-              <div className="pt-4 border-t border-white/5 mt-2">
-                <p className="text-[9px] text-brand/40 uppercase font-black tracking-widest leading-relaxed">
-                  Connettiti per sincronizzare <br /> i dati di gioco
-                </p>
-              </div>
-            )}
           </div>
         </div>
       </main>

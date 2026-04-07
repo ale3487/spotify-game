@@ -7,59 +7,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { fetchTopUser } from "./spotify.service";
-import type { SpotifyUser } from './App';
+import type { StatisticsProps, TrackOrArtist, BackendResponse, RawItem, CachedItem, SpotifyArtistRaw, SpotifyTrackRaw } from './types/statistics.types';
 import { Logo } from './components/Logo'; 
 
 // --- IMPORT COMPONENTI MODULARI ---
 import { NeonBackground } from './components/NeonBackground';
 import { MouseTracker } from './components/MouseTracker';
 
-// --- INTERFACCE DATI ---
-interface CachedItem {
-  id: string;
-  name: string;
-  image: string;
-  link: string;
-  artist?: string;
-}
-
-interface SpotifyArtistRaw {
-  id: string;
-  name: string;
-  images?: { url: string }[];
-  external_urls: { spotify: string };
-}
-
-interface SpotifyTrackRaw {
-  id: string;
-  name: string;
-  artists: { name: string }[];
-  album: { images: { url: string }[] };
-  external_urls: { spotify: string };
-}
-
-type RawItem = CachedItem | SpotifyArtistRaw | SpotifyTrackRaw;
-
-interface BackendResponse {
-  data: RawItem[];
-  total?: number;
-  type?: string;
-  range?: string;
-  cached?: boolean;
-}
-
-interface TrackOrArtist {
-  id: string;
-  artist?: string; 
-  name: string;
-  image: string;
-  link: string;
-}
-
-interface StatisticsProps {
-  user: SpotifyUser | null;
-  isOffline?: boolean;
-}
 
 const Statistics = ({ user, isOffline }: StatisticsProps) => {
   const [items, setItems] = useState<TrackOrArtist[]>([]);

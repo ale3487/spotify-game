@@ -5,24 +5,12 @@ import Home from './home';
 import Statistics from './Statistics';
 import Dashboard from './Dashboard';
 import { registerSW } from 'virtual:pwa-register';
+import type { SpotifyUser } from './types/user.types';
+import LobbyPage from './LobbyPage';
 
 registerSW({ immediate: true });
 
-/**
- * Rappresenta il profilo dell'utente autenticato tramite Spotify.
- */
-export interface SpotifyUser {
-  /** Identificativo univoco di Spotify */
-  spotifyId: string;
-  /** Nome visualizzato dall'utente */
-  display_name: string;
-  /** Indirizzo email dell'account */
-  email: string;
-  /** Array di immagini del profilo (se presenti) */
-  images: { url: string }[] | null;
-  /** ID per l'avatar generato dal backend (opzionale) */
-  defaultAvatarId: number | null;
-}
+
 
 /**
  * Componente per la gestione della Callback di OAuth2.
@@ -117,8 +105,11 @@ export default function App() {
       
       {/* 2. Dashboard: accessibile sempre (gestisce internamente lo stato offline) */}
       <Route path="/dashboard" element={<Dashboard user={user} />} />
+      
+      {/* 3. Lobby: accessibile solo se l'utente è autenticato, altrimenti reindirizza alla Home */}
+      <Route path="/lobby/:roomId" element={<LobbyPage user={user} />} />
 
-      {/* 3. Rotte Condizionali: se offline, reindirizza alla Dashboard */}
+      {/* 4. Rotte Condizionali: se offline, reindirizza alla Dashboard */}
       <Route path="/statistics" element={<Statistics user={user} isOffline={!isOnline} />} />
 
       {/* Fallback per rotte non trovate o errori di caricamento offline */}
