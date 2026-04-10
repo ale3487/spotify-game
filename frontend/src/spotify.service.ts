@@ -56,7 +56,7 @@ export async function loginSpotify(): Promise<void> {
   // Memorizza il verifier per convalidare lo scambio del token nella fase successiva
   localStorage.setItem("code_verifier", codeVerifier);
 
-  const scope = "user-read-private user-read-email user-top-read";
+  const scope = "user-read-private user-read-email user-top-read streaming ";
   const authUrl = new URL("https://accounts.spotify.com/authorize");
   
   authUrl.search = new URLSearchParams({
@@ -177,3 +177,20 @@ export const checkCacheStatus = async (cacheName: string = 'beatmatch-api-cache'
     return false;
   }
 };
+
+/**
+ * Recupera i testi delle canzoni.
+ * Il backend gestisce la logica di caching e fallback, quindi questa funzione si limita a fare una richiesta GET.
+ * @returns I testi delle canzoni o un errore.
+ */
+
+export async function fetchLyrics() {
+    const res = await fetch(`${BACKEND_URL}/api/spotify/lyrics`, {
+      method: "GET",
+      credentials: "include",
+    });
+    if (!res.ok) {
+      throw new Error(`Errore durante il recupero dei testi: ${res.statusText}`);
+    }
+    return await res.json();
+  }

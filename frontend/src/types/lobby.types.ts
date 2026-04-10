@@ -21,3 +21,11 @@ export interface LobbyContextType {
   joinRoom: (roomId: string, userData: SpotifyUser) => void;
   toggleReady: (roomId: string) => void;
 }
+
+export interface LyricsData {
+  track: string;
+  artist: string;
+  lyrics: string;
+  timestamp: string;
+  chorus: string | null;
+}

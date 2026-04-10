@@ -9,6 +9,9 @@ import fetch from "node-fetch";
 import { db, admin } from "../firebase.js";
 import jwt from "jsonwebtoken";
 import { getValidAccessToken } from "../service/spotifyService.js";
+import { Lyrics } from "../class/Lyrics.js";
+import { findChorusByBlocks } from "../utility/findChorusByBlocks.js";
+import { findChorusTimestamp } from "../utility/findChorusTimestamp.js";
 
 /**
  * Gestisce il callback di autenticazione Spotify.
@@ -204,5 +207,130 @@ export const TopUser = async (req, res) => {
   } catch (err) {
     console.error("[CONTROLLER ERROR] Errore TopUser:", err);
     res.status(500).json({ error: "Errore durante il recupero dei dati da Spotify." });
+  }
+};
+
+/**
+ * Recupera i testi sincronizzati per le tracce "long term" dell'utente
+ */
+export const spotifyLyrics = async (req, res) => {
+  try {
+    const lyricsInstances = [];
+    const spotifyId = req.user?.spotifyId;
+    let counter = 0;
+
+    // 1. Controllo Autenticazione
+    if (!spotifyId) {
+      return res.status(401).json({ error: "Non autorizzato. Sessione mancante." });
+    }
+
+    // 2. Recupero dati da Firestore
+    const dbUserData = await db.collection("user_stats").doc(spotifyId).get();
+    if (!dbUserData.exists) {
+      return res.status(404).json({ error: "Dati utente non trovati nel database." });
+    }
+
+    const userData = dbUserData.data();
+    // Navigazione sicura nella struttura specifica: tracks -> long_term -> items
+    const trackList = userData.tracks?.long_term?.items || [];
+
+    // 3. Elaborazione Tracce (Limite a 5 per ottimizzare i tempi di risposta)
+    for (const track of trackList) {
+      if (track?.name && track?.artist) {
+        if (counter >= 5) break;
+        counter++;
+
+        const currentTrack = new Lyrics(track.name, track.artist);
+
+        // Preparazione dei parametri codificati per l'URL (gestione spazi e caratteri speciali)
+        const artistEnc = encodeURIComponent(track.artist);
+        const trackEnc = encodeURIComponent(track.name);
+        const lyricsUrl = `https://lrclib.net/api/get?artist_name=${artistEnc}&track_name=${trackEnc}`;
+
+        try {
+          const apiResponse = await fetch(lyricsUrl, {
+            headers: { 'User-Agent': 'SpotifyGameApp/1.0' },
+          });
+
+          if (apiResponse.ok) {
+            const data = await apiResponse.json();
+            currentTrack.lyrics = data.plainLyrics ||data.syncedLyrics  || "Testo non trovato";
+            currentTrack.syncedLyrics = data.syncedLyrics || null;
+          } else {
+            currentTrack.lyrics = "Testo non disponibile";
+          }
+        } catch (apiError) {
+          // Se LRCLIB fallisce, assegnazione di un messaggio di errore senza bloccare il ciclo
+          currentTrack.lyrics = "Errore nel recupero del testo";
+        }
+        currentTrack.chorus = findChorusByBlocks(currentTrack.lyrics);
+        currentTrack.syncedLines = findChorusTimestamp(currentTrack.syncedLyrics, currentTrack.chorus);
+        console.log(`Elaborata traccia: ${currentTrack.name} di ${currentTrack.artist}` + ` - Chorus identificato: ${currentTrack.chorus ? "Sì" : "No"}`);
+        console.log(`tempo ritornello: ${currentTrack.syncedLines || "Non trovato"}`);
+        lyricsInstances.push(currentTrack);
+      }
+    }
+
+    // 4. Trasformazione per il Frontend
+    const responsePayload = lyricsInstances.map(item => ({
+      track: item.name,
+      artist: item.artist,
+      lyrics: item.lyrics,
+      chorus: item.chorus,
+      timestamp: item.syncedLines
+    }));
+
+    // 5. Risposta finale
+    return res.status(200).json({
+      success: true,
+      lyrics: responsePayload
+    });
+
+  } catch (error) {
+    // Gestione errori del server
+    console.error("Errore critico in spotifyLyrics:", error);
+    return res.status(500).json({ error: "Errore interno del server durante l'elaborazione." });
+  }
+};
+
+/**
+ * Endpoint per ottenere l'access token dal database Spotify per l'utente autenticato, utilizzato per spotify web player.
+ * 
+ */
+
+export const getToken = async (req, res) => {
+  const spotifyId = req.user?.spotifyId;
+  
+  // 1. Verifica se l'utente è loggato nella sessione del backend
+  if (!spotifyId) {
+    console.error("[GET_TOKEN] Sessione mancante o spotifyId assente in req.user");
+    return res.status(401).json({ error: "Sessione non valida o utente non loggato." });
+  }
+
+  try {
+    // 2. Accesso a Firestore
+    const userDoc = await db.collection("users").doc(spotifyId).get();
+
+    if (!userDoc.exists) {
+      console.error(`[GET_TOKEN] Documento non trovato per ID: ${spotifyId}`);
+      return res.status(404).json({ error: "Dati utente non trovati nel database." });
+    }
+
+    const tokenData = userDoc.data();
+    
+    // 3. Verifica se il campo specifico esiste nel database
+
+    const token = tokenData.access_token;
+
+    if (!token) {
+      return res.status(404).json({ error: "Token non presente nel profilo utente." });
+    }
+    
+    // Restituiamo 'accessToken' al frontend
+    return res.status(200).json({ accessToken: token });
+
+  } catch (err) {
+    console.error("[CONTROLLER ERROR] Errore critico getToken:", err);
+    return res.status(500).json({ error: "Errore interno del server." });
   }
 };

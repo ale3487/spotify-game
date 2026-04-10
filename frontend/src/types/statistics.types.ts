@@ -3,6 +3,7 @@ export interface CachedItem {
   id: string;
   name: string;
   image: string;
+  uri: string;
   link: string;
   artist?: string;
 }
@@ -10,6 +11,7 @@ export interface CachedItem {
 export interface SpotifyArtistRaw {
   id: string;
   name: string;
+  uri: string;
   images?: { url: string }[];
   external_urls: { spotify: string };
 }
@@ -17,6 +19,7 @@ export interface SpotifyArtistRaw {
 export interface SpotifyTrackRaw {
   id: string;
   name: string;
+  uri: string;
   artists: { name: string }[];
   album: { images: { url: string }[] };
   external_urls: { spotify: string };
@@ -37,6 +40,7 @@ export interface TrackOrArtist {
   artist?: string; 
   name: string;
   image: string;
+  uri: string;
   link: string;
 }
 

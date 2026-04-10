@@ -1,19 +1,28 @@
 /**
  * @file Statistics.tsx
- * @description Componente dashboard per la visualizzazione delle statistiche utente.
- * Gestisce il fetching asincrono, la normalizzazione dei dati e il supporto offline.
+ * Dashboard per le statistiche utente con Spotify Web Playback SDK integrato nella parte brani.
  */
+
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:5000";
 
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { fetchTopUser } from "./spotify.service";
-import type { StatisticsProps, TrackOrArtist, BackendResponse, RawItem, CachedItem, SpotifyArtistRaw, SpotifyTrackRaw } from './types/statistics.types';
-import { Logo } from './components/Logo'; 
+import type { 
+  StatisticsProps, 
+  TrackOrArtist, 
+  BackendResponse, 
+  RawItem, 
+  CachedItem, 
+  SpotifyArtistRaw, 
+  SpotifyTrackRaw 
+} from './types/statistics.types';
 
-// --- IMPORT COMPONENTI MODULARI ---
+// --- COMPONENTI ---
+import { Logo } from './components/Logo'; 
 import { NeonBackground } from './components/NeonBackground';
 import { MouseTracker } from './components/MouseTracker';
-
+import SpotifyPlayer from './components/SpotifyPlayer'; 
 
 const Statistics = ({ user, isOffline }: StatisticsProps) => {
   const [items, setItems] = useState<TrackOrArtist[]>([]);
@@ -21,8 +30,15 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
   const [type, setType] = useState<'artists' | 'tracks'>('artists');
   const [range, setRange] = useState<string>('medium_term');
   const [loading, setLoading] = useState<boolean>(true);
+  
+  // --- STATO PLAYER TIPIZZATO ---
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [playerInstance, setPlayerInstance] = useState<Spotify.Player | null>(null);
+
   const navigate = useNavigate();
 
+  // --- FETCHING DATI ---
   useEffect(() => {
     if (!user) return;
     
@@ -34,12 +50,14 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
         
         const formattedData: TrackOrArtist[] = rawItems.map((item: RawItem) => {
           if ('link' in item && typeof item.link === 'string') {
+            const cached = item as CachedItem;
             return {
-              id: item.id,
-              name: item.name,
-              image: (item as CachedItem).image,
-              link: (item as CachedItem).link,
-              artist: (item as CachedItem).artist
+              id: cached.id,
+              uri: cached.uri || `spotify:${type === 'tracks' ? 'track' : 'artist'}:${cached.id}`,
+              name: cached.name,
+              image: cached.image,
+              link: cached.link,
+              artist: cached.artist
             };
           }
 
@@ -47,6 +65,7 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
             const track = item as SpotifyTrackRaw;
             return {
               id: track.id,
+              uri: track.uri,
               name: track.name,
               image: track.album.images[0]?.url || '',
               link: track.external_urls.spotify,
@@ -57,6 +76,7 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
           const artist = item as SpotifyArtistRaw;
           return {
             id: artist.id,
+            uri: artist.uri,
             name: artist.name,
             image: artist.images?.[0]?.url || '',
             link: artist.external_urls.spotify,
@@ -67,7 +87,7 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
         setItems(formattedData);
         setTotalItems(response.total || formattedData.length);
       } catch (err) { 
-        console.error("Errore nel recupero delle statistiche:", err); 
+        console.error("Errore statistiche:", err); 
         setItems([]);
       } finally { 
         setLoading(false); 
@@ -77,153 +97,216 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
     loadData();
   }, [type, range, user]);
 
+  // --- LOGICA PLAYBACK ---
+  const handlePlayPause = async (trackUri: string, trackId: string) => {
+    // Controllo sicurezza sui tipi
+    if (!playerInstance || !deviceId) return;
+
+    if (playingId === trackId) {
+      await playerInstance.pause();
+      setPlayingId(null);
+      return;
+    }
+
+    try {
+          const tokenRes = await fetch(`${BACKEND_URL}/api/spotify/access_token`, { 
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+              'Cache-Control': 'no-cache' 
+            },
+            credentials: 'include' 
+          });
+      const { accessToken }: { accessToken: string } = await tokenRes.json();
+
+      // Endpoint ufficiale Spotify per il comando di riproduzione
+      await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ uris: [trackUri] }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+      });
+      setPlayingId(trackId);
+    } catch (err) {
+      console.error("Errore riproduzione:", err);
+    }
+  };
+
   const estimatedMinutes = useMemo(() => {
-    const multiplier = range === 'long_term' ? 48 : range === 'medium_term' ? 20 : 7;
+    const multiplier = range === 'long_term' ? 5 : range === 'medium_term' ? 3 : 1;
     return Math.floor(totalItems * multiplier * 3.2);
   }, [totalItems, range]);
 
   if (!user) return <Navigate to="/" />;
 
   return (
-    <div className="min-h-screen text-slate-200 font-sans p-4 md:p-8 relative selection:bg-brand selection:text-black overflow-x-hidden bg-[#020203]">
+    <div className="min-h-screen text-slate-200 font-sans p-4 md:p-8 relative bg-[#020203]">
       <NeonBackground />
       <MouseTracker />
+      
+      <SpotifyPlayer 
+        onPlayerReady={(id: string, instance: Spotify.Player) => {
+          setDeviceId(id);
+          setPlayerInstance(instance);
+        }} 
+      />
 
       <main className="max-w-6xl mx-auto space-y-8 relative z-10">
-        
-        {/* HEADER: Navigazione, Brand e Badge Offline */}
+        {/* HEADER DASHBOARD */}
         <header className="flex justify-between items-center px-4">
-          <div className="pointer-events-auto flex items-center gap-4">
+          <div className="flex items-center gap-4">
             <Logo size="md" />
-            
-            {/* BADGE OFFLINE */}
             {isOffline && (
-              <div className="bg-red-500/10 text-red-500 border border-red-500/20 text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-widest animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.1)]">
-                Modalita Offline
+              <div className="bg-red-500/10 text-red-500 border border-red-500/20 text-[9px] font-black px-3 py-1 rounded-full uppercase animate-pulse">
+                Offline
               </div>
             )}
           </div>
-          
-          <button 
-            onClick={() => navigate('/dashboard')} 
-            className="text-[10px] font-black text-brand uppercase tracking-[0.2em] border-b border-brand/10 hover:border-brand transition-all pb-1 outline-none"
-          >
-            ← Ritorno alla pagina precedente
+          <button onClick={() => navigate('/dashboard')} className="text-[10px] font-black text-brand uppercase border-b border-brand/10 hover:border-brand pb-1 transition-all">
+            ← Dashboard
           </button>
         </header>
 
-        {/* WIDGETS SECTION */}
+        {/* TOP CARDS: PROFILE & STATS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-glass-gradient backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-6 flex items-center gap-6 shadow-2xl transition-all duration-500 hover:border-white/20">
-            <div className="relative shrink-0">
-              <div className="absolute inset-0 rounded-full bg-brand/20 blur-2xl animate-pulse"></div>
-              <img 
-                src={user.images?.[0]?.url || ''} 
-                className="w-20 h-20 rounded-full border border-white/20 p-1 object-cover relative z-10"
-                alt={user.display_name || 'Profile'} 
-              />
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-xl font-black text-white uppercase italic truncate">{user.display_name}</h2>
-              <p className="text-[8px] text-brand/60 font-black uppercase tracking-[0.3em] mt-1 italic">Spotify User Stats</p>
+          <div className="bg-glass-gradient backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-6 flex items-center gap-6">
+            <img src={user.images?.[0]?.url || ''} className="w-20 h-20 rounded-full border border-white/20 p-1 object-cover" alt="Profile" />
+            <div>
+              <h2 className="text-xl font-black text-white uppercase italic">{user.display_name}</h2>
+              <p className="text-[8px] text-brand/60 font-black uppercase italic">Spotify Stats</p>
             </div>
           </div>
 
-          <div className="md:col-span-2 bg-glass-gradient backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-6 relative overflow-hidden flex items-center justify-between shadow-2xl group transition-all duration-500 hover:border-white/20">
-            <div className="relative z-10">
-              <h3 className="text-[9px] font-black uppercase tracking-[0.4em] text-slate-400 mb-2">stima Tempo di ascolto</h3>
+          <div className="md:col-span-2 bg-glass-gradient backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-6 flex items-center justify-between">
+            <div>
+              <h3 className="text-[9px] font-black uppercase text-slate-400 mb-2">Minuti stimati</h3>
               <div className="flex items-baseline gap-2">
-                <span className="text-6xl font-black text-white italic tracking-tighter">
+                <span className="text-6xl font-black text-white italic drop-shadow-[0_0_1px_rgba(255,255,255,0.3)]">
                   {estimatedMinutes.toLocaleString()}
                 </span>
                 <span className="text-brand font-black text-xs uppercase italic">min</span>
               </div>
             </div>
-
-            <div className="relative z-10 text-right pr-4 border-l border-white/10 pl-10">
-              <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Stima ore</p>
-              <p className="text-4xl font-black text-white italic leading-none">~{Math.round(estimatedMinutes / 60)}h</p>
-              <div className="mt-4 px-4 py-1.5 bg-brand text-brand-dark rounded-full font-black text-[9px] uppercase tracking-tighter shadow-lg shadow-brand/20">
-                {estimatedMinutes > 15000 ? "ascoltatore elit" : "ascoltatore appassionato"}
-              </div>
+            <div className="text-right border-l border-white/10 pl-10">
+              <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Stima ore</p>
+              <p className="text-4xl font-black text-white italic drop-shadow-[0_0_1px_rgba(255,255,255,0.3)]">
+                ~{Math.round(estimatedMinutes / 60)}h
+              </p>
             </div>
           </div>
         </div>
 
-        {/* CLASSIFICA SECTION */}
-        <section className="bg-glass-gradient backdrop-blur-3xl border border-white/10 rounded-[3rem] overflow-hidden flex flex-col h-[620px] shadow-[0_30px_100px_rgba(0,0,0,0.5)] relative transition-all duration-500 hover:border-white/20">
-          <div className="p-8 border-b border-white/10 flex flex-col sm:flex-row justify-between items-center gap-6 bg-white/[0.02]">
-            <div className="bg-white/5 p-1.5 rounded-2xl border border-white/5 flex shadow-inner backdrop-blur-md">
+        {/* MAIN CONTENT SECTION */}
+        <section className="bg-glass-gradient backdrop-blur-3xl border border-white/10 rounded-[3rem] overflow-hidden flex flex-col h-[620px]">
+          
+          {/* CONTROL BAR: TYPE & RANGE */}
+          <div className="p-8 border-b border-white/10 flex flex-col md:flex-row justify-between items-center bg-white/[0.02] gap-4">
+            
+            {/* Selettore Tipo */}
+            <div className="bg-white/5 p-1.5 rounded-2xl flex border border-white/5">
               <button 
                 onClick={() => setType('artists')} 
-                className={`px-12 py-3.5 rounded-xl text-[10px] font-black uppercase transition-all duration-500 ${type === 'artists' ? 'bg-brand text-brand-dark shadow-lg shadow-brand/20 scale-105' : 'text-slate-400 hover:text-white'}`}
+                className={`px-12 py-3.5 rounded-xl text-[10px] font-black uppercase transition-all duration-300 ${type === 'artists' ? 'bg-brand text-brand-dark shadow-lg shadow-brand/20' : 'text-slate-400 hover:text-white'}`}
               >
                 Artisti
               </button>
               <button 
                 onClick={() => setType('tracks')} 
-                className={`px-12 py-3.5 rounded-xl text-[10px] font-black uppercase transition-all duration-500 ${type === 'tracks' ? 'bg-brand text-brand-dark shadow-lg shadow-brand/20 scale-105' : 'text-slate-400 hover:text-white'}`}
+                className={`px-12 py-3.5 rounded-xl text-[10px] font-black uppercase transition-all duration-300 ${type === 'tracks' ? 'bg-brand text-brand-dark shadow-lg shadow-brand/20' : 'text-slate-400 hover:text-white'}`}
               >
                 Brani
               </button>
             </div>
 
-            <select 
-              value={range} 
-              onChange={(e) => setRange(e.target.value)} 
-              className="bg-white/5 text-brand text-[10px] font-black uppercase px-8 py-3.5 rounded-xl border border-white/10 outline-none cursor-pointer hover:border-brand/50 transition-all appearance-none"
-            >
-              <option value="short_term">Ultimo mese</option>
-              <option value="medium_term">Ultimi 6 mesi</option>
-              <option value="long_term">Tutto l'anno</option>
-            </select>
+            {/* Selettore Range */}
+            <div className="bg-white/5 p-1.5 rounded-2xl flex border border-white/5">
+              {[
+                { id: 'short_term', label: '1 Mese' },
+                { id: 'medium_term', label: '6 Mesi' },
+                { id: 'long_term', label: '1 Anno' }
+              ].map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => setRange(r.id)}
+                  className={`px-6 py-3.5 rounded-xl text-[10px] font-black uppercase transition-all duration-300 ${
+                    range === r.id 
+                      ? 'bg-white/10 text-brand border border-brand/20' 
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
           </div>
 
+          {/* TABLE AREA */}
           <div className="flex-1 overflow-y-auto custom-scrollbar px-8 py-4">
             <table className="w-full border-separate border-spacing-y-4">
               <tbody>
                 {loading ? (
                   <tr>
-                    <td className="text-center py-40 animate-pulse text-brand font-black uppercase tracking-[1em] text-[10px]">
-                        Caricamento...
+                    <td className="text-center py-40 text-brand font-black uppercase text-[10px] tracking-widest animate-pulse">
+                      Caricamento statistiche...
                     </td>
                   </tr>
                 ) : items.map((item, index) => (
-                  <tr key={item.id} className="group bg-white/[0.02] hover:bg-white/[0.06] transition-all duration-300 rounded-2xl overflow-hidden shadow-sm">
-                    <td className="p-4 w-16 text-2xl font-black italic text-white/5 group-hover:text-brand/20 transition-all">
+                  <tr key={item.id} className="group bg-white/[0.02] hover:bg-white/[0.04] transition-all rounded-2xl overflow-hidden">
+                    <td 
+                      className="p-4 w-20 text-3xl font-black italic text-transparent bg-clip-text bg-gradient-to-b from-white/20 to-transparent select-none" 
+                      style={{ WebkitTextStroke: '1px rgba(199, 154, 0, 0.4)' }}
+                    >
                       {(index + 1).toString().padStart(2, '0')}
                     </td>
+
+                    {/* Image & Info */}
                     <td className="p-2">
                       <div className="flex items-center gap-6">
-                        <div className="relative group/img">
-                           <div className="absolute inset-0 bg-brand/20 blur-lg rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                           <img 
-                            src={item.image} 
-                            className={`w-14 h-14 object-cover shadow-2xl relative z-10 transition-transform duration-500 group-hover:scale-110 ${type === 'artists' ? 'rounded-full border border-white/10' : 'rounded-xl border border-white/10'}`} 
-                            alt={item.name} 
-                          />
-                        </div>
+                        <img 
+                          src={item.image} 
+                          className={`w-14 h-14 object-cover ${type === 'artists' ? 'rounded-full' : 'rounded-xl'} border border-white/10 shadow-lg`} 
+                          alt={item.name} 
+                        />
                         <div className="min-w-0">
-                          <p className="text-sm font-black text-white uppercase italic group-hover:text-brand transition-colors tracking-tight truncate">
-                            {item.name}
-                          </p>
-                          <p className="text-[10px] text-brand/80 font-medium uppercase tracking-wider mt-0.5 truncate italic">
+                          <p className="text-sm font-black text-white uppercase italic truncate tracking-tight">{item.name}</p>
+                          <p className="text-[10px] text-brand/70 font-bold uppercase mt-0.5 truncate tracking-wider">
                             {type === 'tracks' ? item.artist : 'Top Artist'}
                           </p>
                         </div>
                       </div>
                     </td>
+
+                    {/* Action Button */}
                     <td className="p-4 text-right">
-                      <a 
-                        href={item.link} 
-                        target="_blank" 
-                        rel="noreferrer" 
-                        className="inline-flex items-center justify-center w-10 h-10 rounded-full border border-white/5 text-white/10 hover:text-brand hover:border-brand hover:bg-brand/5 transition-all duration-300 shadow-inner"
-                      >
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
-                        </svg>
-                      </a>
+                      {type === 'tracks' ? (
+                        <button 
+                          onClick={() => handlePlayPause(item.uri, item.id)}
+                          className={`inline-flex items-center justify-center w-12 h-12 rounded-full border transition-all duration-500 shadow-xl ${
+                            playingId === item.id 
+                              ? 'bg-brand text-brand-dark border-brand shadow-brand/40 scale-110' 
+                              : 'bg-white/5 text-white/40 border-white/10 hover:text-brand hover:border-brand/50 hover:bg-brand/5'
+                          }`}
+                        >
+                          {playingId === item.id ? (
+                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                          ) : (
+                            <svg className="w-5 h-5 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                          )}
+                        </button>
+                      ) : (
+                        <a 
+                          href={item.link} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center justify-center w-12 h-12 rounded-full border border-white/10 bg-white/5 text-white/40 hover:text-brand hover:border-brand/50 hover:bg-brand/5 transition-all duration-500 shadow-xl"
+                        >
+                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.491 17.293a.748.748 0 01-1.03.249c-2.862-1.748-6.464-2.144-10.707-1.176a.751.751 0 01-.334-1.464c4.646-1.062 8.627-.611 11.822 1.341a.749.749 0 01.249 1.05zm1.466-3.264a.938.938 0 01-1.288.309c-3.276-2.012-8.271-2.597-12.146-1.419a.938.938 0 11-.546-1.794c4.425-1.343 9.932-.693 13.67 1.604a.938.938 0 01.31 1.3zm.126-3.407c-3.928-2.333-10.413-2.548-14.186-1.402a1.125 1.125 0 11-.652-2.156c4.331-1.314 11.492-1.06 16.012 1.623a1.125 1.125 0 01-1.174 1.935z"/>
+                          </svg>
+                        </a>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -232,13 +315,6 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
           </div>
         </section>
       </main>
-
-      <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 3px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(199, 154, 0, 0.4); border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #c79a00; }
-        select option { background-color: #020203; color: white; border: none; padding: 10px; }
-      `}</style>
     </div>
   );
 };

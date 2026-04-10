@@ -6,7 +6,7 @@
  */
 
 import express from "express";
-import { loginSpotify, getMe, TopUser } from "../controllers/spotify.controller.js";
+import { loginSpotify, getMe, TopUser, spotifyLyrics, getToken} from "../controllers/spotify.controller.js";
 import { authenticate } from "../service/coockies.js";
 
 const router = express.Router();
@@ -32,5 +32,20 @@ router.get("/me", authenticate, getMe);
  * @access  Private
  */
 router.get('/TopUser', authenticate, TopUser);
+
+/**
+ * @route   GET /api/spotify/lyrics
+ * @desc    Recupera i testi della top 5 canzoni dell'utente.
+ * @access  Private
+ */
+router.get('/lyrics', authenticate, spotifyLyrics);
+
+/**
+ * @route   GET /api/spotify/access_token
+ * @desc   Endpoint per ottenere l'access token dal database Spotify per l'utente autenticato. 
+ * @access  Private
+ */
+
+router.get('/access_token', authenticate, getToken)
 
 export default router;
