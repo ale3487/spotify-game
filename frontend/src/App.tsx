@@ -1,6 +1,12 @@
+/**
+ * @file App.tsx
+ * @description Componente root dell'applicazione BeatMatch.
+ * Gestisce l'autenticazione OAuth2, la persistenza della sessione e il routing principale.
+ */
+
 import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
 import { useEffect, useState, useRef } from "react";
-import { exchangeToken, checkSession } from "./spotify.service";
+import { exchangeToken, checkSession } from "./service/spotify.service";
 import Home from './home';
 import Statistics from './Statistics';
 import Dashboard from './Dashboard';
@@ -8,19 +14,26 @@ import { registerSW } from 'virtual:pwa-register';
 import type { SpotifyUser } from './types/user.types';
 import LobbyPage from './LobbyPage';
 
+/**
+ * Registra e aggiorna il Service Worker per il supporto PWA
+ */
 registerSW({ immediate: true });
-
-
 
 /**
  * Componente per la gestione della Callback di OAuth2.
  * Recupera il codice dall'URL, effettua lo scambio dei token e reindirizza l'utente.
- * * @param props - Proprietà del componente.
- * @param props.onLogin - Callback per aggiornare lo stato dell'utente nel componente root.
+ * 
+ * @param {Object} props - Proprietà del componente
+ * @param {Function} props.onLogin - Callback per aggiornare lo stato dell'utente nel componente root
+ * @returns {JSX.Element} Schermata di caricamento durante la sincronizzazione
  */
 function Callback({ onLogin }: { onLogin: (u: SpotifyUser) => void }) {
   const navigate = useNavigate();
-  /** Ref per prevenire doppie chiamate causate dal React.StrictMode in sviluppo */
+  
+  /**
+   * Ref per prevenire doppie chiamate causate dal React.StrictMode in sviluppo
+   * @type {React.MutableRefObject<boolean>}
+   */
   const hasCalled = useRef(false);
 
   useEffect(() => {
@@ -56,18 +69,39 @@ function Callback({ onLogin }: { onLogin: (u: SpotifyUser) => void }) {
 }
 
 /**
- * Componente Root dell'applicazione.
- * Gestisce la persistenza della sessione al caricamento e definisce l'alberatura delle rotte.
+ * Componente Root dell'applicazione BeatMatch.
+ * Gestisce:
+ * - L'inizializzazione della sessione utente al caricamento
+ * - La persistenza dello stato di login
+ * - Lo stato online/offline
+ * - Il routing principale tra le pagine
+ * 
+ * @returns {JSX.Element} Albero di routing dell'applicazione
  */
 export default function App() {
+  /**
+   * Dati dell'utente autenticato
+   * @type {[SpotifyUser | null, Function]}
+   */
   const [user, setUser] = useState<SpotifyUser | null>(null);
+
+  /**
+   * Indica se l'app sta caricando i dati della sessione
+   * @type {[boolean, Function]}
+   */
   const [loading, setLoading] = useState<boolean>(true);
   
-  // 1. Monitoraggio connessione globale
+  /**
+   * Stato della connessione internet (online/offline)
+   * @type {[boolean, Function]}
+   */
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   useEffect(() => {
-    // Inizializzazione sessione
+    /**
+     * Inizializza la sessione al caricamento dell'app
+     * Controlla se esiste una sessione valida nel backend
+     */
     async function initAuth() {
       try {
         const userData = await checkSession();
@@ -82,6 +116,9 @@ export default function App() {
     }
     initAuth();
 
+    /**
+     * Listener per il cambio di connettività
+     */
     const handleStatus = () => setIsOnline(navigator.onLine);
     window.addEventListener('online', handleStatus);
     window.addEventListener('offline', handleStatus);

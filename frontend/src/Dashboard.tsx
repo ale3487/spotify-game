@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
-import { checkCacheStatus } from './spotify.service'; 
+import { checkCacheStatus } from './service/spotify.service'; 
 import type { SpotifyUser } from './types/user.types';
 
 // --- IMPORT SOCKET LOGIC ---

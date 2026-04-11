@@ -22,7 +22,8 @@
   /* Gradienti Dinamici (Utilizzano variabili CSS aggiornate via JS per l'effetto spotlight) */
   --background-image-spotlight: radial-gradient(350px at var(--mouse-x) var(--mouse-y), rgba(255, 210, 0, 0.35) 0%, rgba(200, 155, 0, 0.1) 40%, transparent 80%);
   --background-image-spotlight-diffuse: radial-gradient(700px at var(--mouse-x) var(--mouse-y), rgba(200, 155, 0, 0.05) 0%, transparent 100%);
-
+  /* Animazione di vibrazione per avatar */
+  --animate-avatar-vibe: avatar-vibe 6s infinite ease-in-out;
   /**
    * Animazione flottante complessa per elementi decorativi.
    * Gestisce traslazione, rotazione e opacità simultaneamente.
@@ -31,6 +32,14 @@
     0%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.3; }
     33% { transform: translate(45px, -70px) rotate(15deg); opacity: 0.7; }
     66% { transform: translate(-35px, -110px) rotate(-15deg); opacity: 0.5; }
+  }
+  /**
+   * Animazione di vibrazione per avatar o elementi interattivi.
+   * Simula un movimento di "vibrazione" con leggera rotazione.
+   */
+  @keyframes avatar-vibe {
+    0%, 100% { transform: translateY(0) rotate(-1deg); }
+    50% { transform: translateY(-10px) rotate(1deg); }
   }
 }
 

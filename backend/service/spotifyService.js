@@ -8,24 +8,30 @@
 import fetch from "node-fetch";
 import { db } from "../firebase.js";
 
-
 const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
 const CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
 
 /**
  * Genera l'header di autorizzazione Basic richiesto da Spotify per lo scambio token.
+ * Encoding in Base64 delle credenziali client.
  * @returns {string} Stringa Base64 nel formato client_id:client_secret
  */
 const encodeBasicAuth = () =>
   Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64");
 
 /**
- * Recupera un Access Token valido dal database.
+ * Recupera un Access Token valido dal database Firestore.
  * Se il token è prossimo alla scadenza (finestra di 60s), avvia automaticamente
  * la procedura di refresh tramite le API di Spotify e aggiorna Firestore.
- * * @param {string} spotifyId - L'ID univoco dell'utente Spotify (document ID in Firestore).
- * @returns {Promise<string>} L'access token pronto all'uso.
- * @throws {Error} Se l'utente non esiste o se il refresh fallisce.
+ * Implementa un buffer di sicurezza per prevenire errori dovuti a latenza di rete.
+ * 
+ * @param {string} spotifyId - L'ID univoco dell'utente Spotify (document ID in Firestore)
+ * @returns {Promise<string>} L'access token pronto all'uso per le richieste API
+ * @throws {Error} Se l'utente non esiste nel database o se il refresh fallisce
+ * 
+ * @example
+ * const token = await getValidAccessToken('spotify_user_id');
+ * // Token è pronto per le richieste API, refresh automatico se necessario
  */
 export const getValidAccessToken = async (spotifyId) => {
   const userRef = db.collection("users").doc(spotifyId);
@@ -37,7 +43,8 @@ export const getValidAccessToken = async (spotifyId) => {
 
   let { accessToken, refreshToken, tokenExpiresAt } = userDoc.data();
 
-  /** * LOGICA DI REFRESH
+  /**
+   * LOGICA DI REFRESH
    * Utilizziamo un buffer di 60.000ms (1 minuto) per prevenire fallimenti nelle chiamate 
    * asincrone dovuti a latenza di rete proprio durante la scadenza.
    */
@@ -72,12 +79,12 @@ export const getValidAccessToken = async (spotifyId) => {
       const newRefreshToken = data.refresh_token || refreshToken;
       tokenExpiresAt = Date.now() + (data.expires_in * 1000);
 
-      // Sincronizzazione atomica con Firestore
+      // Sincronizzazione atomica con Firestore per persistere i nuovi token
       await userRef.update({
         accessToken,
         refreshToken: newRefreshToken,
         tokenExpiresAt,
-        lastRefresh: new Date().toISOString() // Utile per debug
+        lastRefresh: new Date().toISOString() // Timestamp utile per debug e audit log
       });
 
     } catch (error) {

@@ -7,7 +7,7 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:5000";
 
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
-import { fetchTopUser } from "./spotify.service";
+import { fetchTopUser } from "./service/spotify.service";
 import type { 
   StatisticsProps, 
   TrackOrArtist, 

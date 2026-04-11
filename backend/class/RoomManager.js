@@ -1,13 +1,27 @@
-// server/class/RoomManager.js
+/**
+ * @file RoomManager.js
+ * @description Gestore singleton delle stanze di gioco.
+ * Implementa la creazione, recupero e distruzione delle stanze con collision avoidance.
+ */
+
 import { Room } from './Room.js';
 
+/**
+ * Gestore centralizzato per tutte le stanze di gioco.
+ * @class RoomManager
+ */
 export class RoomManager {
-  // Mappa privata: roomId -> Istanza della classe Room
+  /**
+   * Mappa privata: roomId -> Istanza della classe Room
+   * @private
+   * @type {Map<string, Room>}
+   */
   #rooms = new Map();
 
   /**
    * Crea una nuova stanza con un ID univoco di 5 caratteri.
-   * @returns {Room} L'istanza della stanza appena creata.
+   * Utilizza collision avoidance per garantire unicità dell'ID.
+   * @returns {Room} L'istanza della stanza appena creata
    */
   createRoom() {
     let roomId;
@@ -24,18 +38,19 @@ export class RoomManager {
   }
 
   /**
-   * Recupera una stanza tramite il suo ID.
-   * @param {string} roomId 
-   * @returns {Room|undefined}
+   * Recupera una stanza tramite il suo ID (case-insensitive).
+   * @param {string} roomId - ID della stanza da recuperare
+   * @returns {Room|undefined} L'istanza della stanza o undefined se non trovata
    */
   getRoom(roomId) {
     return this.#rooms.get(roomId?.toUpperCase());
   }
 
   /**
-   * Rimuove un giocatore da una stanza e distrugge la stanza se vuota.
-   * @param {string} roomId 
-   * @param {string} socketId 
+   * Rimuove un giocatore da una stanza specifica.
+   * Se la stanza rimane vuota, viene distrutta per liberare memoria.
+   * @param {string} roomId - ID della stanza
+   * @param {string} socketId - ID del socket del giocatore
    */
   handlePlayerLeave(roomId, socketId) {
     const room = this.getRoom(roomId);
@@ -51,9 +66,10 @@ export class RoomManager {
   }
 
   /**
-   * Rimuove un giocatore da QUALSIASI stanza (utile alla disconnessione totale).
-   * @param {string} socketId 
-   * @returns {string|null} Il roomId della stanza lasciata, se presente.
+   * Rimuove un giocatore da QUALSIASI stanza in cui si trovi.
+   * Utile per la gestione della disconnessione totale.
+   * @param {string} socketId - ID del socket del giocatore
+   * @returns {string|null} Il roomId della stanza lasciata, se presente
    */
   findAndRemovePlayer(socketId) {
     for (const [roomId, room] of this.#rooms) {
@@ -66,11 +82,18 @@ export class RoomManager {
     return null;
   }
 
-  // Getter per debug (opzionale)
+  /**
+   * Restituisce il numero totale di stanze attive (utile per debug).
+   * @returns {number} Numero di stanze
+   */
   get totalRooms() {
     return this.#rooms.size;
   }
 }
 
-// Esportiamo una singola istanza (Singleton) per tutto il server
+/**
+ * Esportiamo una singola istanza (Singleton) per tutto il server.
+ * Questo garantisce che esista un'unica istanza di RoomManager in tutto l'applicazione.
+ * @type {RoomManager}
+ */
 export const roomManager = new RoomManager();

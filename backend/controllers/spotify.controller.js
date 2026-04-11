@@ -14,8 +14,20 @@ import { findChorusByBlocks } from "../utility/findChorusByBlocks.js";
 import { findChorusTimestamp } from "../utility/findChorusTimestamp.js";
 
 /**
- * Gestisce il callback di autenticazione Spotify.
- * Scambia il 'code' con i token, salva l'utente su Firestore e imposta il cookie di sessione.
+ * Gestisce il callback di autenticazione Spotify (OAuth2 PKCE Exchange).
+ * Scambia il 'code' e 'code_verifier' con i token di accesso/refresh.
+ * Salva l'utente su Firestore e imposta il cookie di sessione JWT HttpOnly.
+ * 
+ * @async
+ * @param {import('express').Request} req - Richiesta con body: { code, code_verifier }
+ * @param {import('express').Response} res - Risposta con dati utente e cookie session_token
+ * @returns {void}
+ * @description
+ * Step 1: Scambia code con token Spotify (access_token, refresh_token)
+ * Step 2: Recupera profilo utente dall'API Spotify (/v1/me)
+ * Step 3: Salva profilo e token su Firestore
+ * Step 4: Genera JWT e lo imposta come cookie HttpOnly secure
+ * Step 5: Restituisce dati utente al client
  */
 export const loginSpotify = async (req, res) => {
   const { SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REDIRECT_URI, JWT_SECRET, NODE_ENV } = process.env;
@@ -102,8 +114,16 @@ export const loginSpotify = async (req, res) => {
 };
 
 /**
- * Restituisce i dati dell'utente contenuti nel JWT.
- * Utilizzata per il ripristino della sessione al refresh del frontend.
+ * Restituisce i dati dell'utente estratti dal JWT della sessione.
+ * Consente al frontend di ripristinare la sessione al caricamento della pagina.
+ * 
+ * @async
+ * @param {import('express').Request} req - Richiesta con req.user caricato dal middleware authenticate
+ * @param {import('express').Response} res - Risposta con dati utente in JSON
+ * @returns {void} JSON { spotifyId, display_name, email, images }
+ * @description
+ * Il middleware authenticate valida il JWT e carica req.user con i dati decodificati.
+ * Questa funzione semplicemente restituisce quei dati al client.
  */
 export const getMe = async (req, res) => {
   if (req.user) {
@@ -320,7 +340,7 @@ export const getToken = async (req, res) => {
     
     // 3. Verifica se il campo specifico esiste nel database
 
-    const token = tokenData.access_token;
+    const token = tokenData.accessToken;
 
     if (!token) {
       return res.status(404).json({ error: "Token non presente nel profilo utente." });

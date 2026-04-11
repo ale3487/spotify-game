@@ -1,3 +1,10 @@
+/**
+ * @file server.js
+ * @description File principale del server di BeatMatch.
+ * Configura la istanza Express, abilita CORS, imposta i middleware (cookie parser, JSON).
+ * Inizializza HTTP + Socket.io per la comunicazione real-time tra giocatori nelle stanze.
+ */
+
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";

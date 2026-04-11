@@ -5,7 +5,7 @@
  * e i punti di ingresso per l'autenticazione OAuth con Spotify.
  */
 
-import { loginSpotify } from './spotify.service';
+import { loginSpotify } from './service/spotify.service';
 
 // --- IMPORT COMPONENTI MODULARI ---
 import { NeonBackground } from './components/NeonBackground';

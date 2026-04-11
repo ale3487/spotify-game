@@ -1,7 +1,23 @@
 /**
- * Trova il ritornello per ripetizione. 
- * @param {string} lyrics - Il testo completo della canzone 
- * @return {string|null} Il testo del ritornello o null se non trovato.
+ * @file findChorusByBlocks.js
+ * @description Identifica il ritornello di una canzone cercando blocchi di testo ripetuti.
+ * Implementa un sistema robusto basato su frequenza per rilevare pattern ricorrenti.
+ */
+
+/**
+ * Trova il ritornello di una canzone analizzando i blocchi di testo ripetuti.
+ * Il ritornello è identificato come il blocco che si ripete più volte o, in fallback,
+ * il secondo paragrafo della canzone.
+ * 
+ * @param {string} lyrics - Il testo completo della canzone suddiviso in paragrafi
+ * @returns {string|null} Il testo del ritornello o null se non individuabile
+ * 
+ * @description Algoritmo:
+ * 1. Suddivide il testo in blocchi (paragrafi separati da righe vuote)
+ * 2. Normalizza ogni blocco rimuovendo tag, punctuation e whitespace
+ * 3. Conta la frequenza di ogni blocco normalizzato
+ * 4. Se una ripetizione vera è trovata (count > 1), la ritorna come ritornello
+ * 5. Altrimenti, ritorna il secondo paragrafo come fallback (o il primo se unico)
  */
 export const findChorusByBlocks = (lyrics) => {
   if (!lyrics) return null;

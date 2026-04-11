@@ -1,8 +1,23 @@
 /**
+ * @file findChorusTimestamp.js
+ * @description Trova il timestamp d'inizio del ritornello nei testi sincronizzati.
+ * Implementa matching line-by-line con tolleranza di errore (80% match).
+ */
+
+/**
  * Trova il timestamp d'inizio di un blocco di testo all'interno dei testi sincronizzati.
- * @param {string} syncedLyrics - Il testo con i timestamp [mm:ss.xx].
- * @param {string} chorusText - Il testo del ritornello (senza tempi).
- * @returns {string|null} - Il timestamp (es. "01:01.15"), "00:30.00" se non trovo tramite euristica ritornello o null se non trovato.
+ * Utilizza un algoritmo di pattern matching che richiede l'80% di corrispondenza
+ * con le linee del ritornello per identificare il blocco corretto.
+ * 
+ * @param {string} syncedLyrics - Il testo con i timestamp in formato [mm:ss.xx] seguito dal testo
+ * @param {string} chorusText - Il testo del ritornello (senza timestamp)
+ * @returns {string|null} Il timestamp nel formato "mm:ss.xx" (es. "01:01.15"), 
+ *                       "00:30.00" se chorusText è null,
+ *                       null se non trovato
+ * 
+ * @example
+ * const timestamp = findChorusTimestamp(syncedLyrics, chorusText);
+ * // Ritorna: "01:15.50"
  */
 export const findChorusTimestamp = (syncedLyrics, chorusText) => {
   if (!syncedLyrics) return null;
