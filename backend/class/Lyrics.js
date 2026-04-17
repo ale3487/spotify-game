@@ -9,54 +9,15 @@
  * @class Lyrics
  */
 export class Lyrics {
-    /**
-     * Nome della canzone
-     * @private
-     * @type {string}
-     */
+
     #name;
-
-    /**
-     * Artista della canzone
-     * @private
-     * @type {string}
-     */
     #artist;
-
-    /**
-     * Testo completo della canzone (non sincronizzato)
-     * @private
-     * @type {string}
-     */
     #lyrics;
-
-    /**
-     * Testo del ritornello identificato
-     * @private
-     * @type {string}
-     */
     #chorus;
-
-    /**
-     * Timestamp d'inizio del ritornello
-     * @private
-     * @type {string}
-     */
     #timestamp;
-
-    /**
-     * Testi sincronizzati con timestamp [mm:ss.xx]
-     * @private
-     * @type {string}
-     */
     #syncedLyrics;
-
-    /**
-     * Array di linee sincronizzate parsate
-     * @private
-     * @type {Array<Object>}
-     */
     #syncedLines;
+    #uri;
 
     /**
      * Crea una nuova istanza di Lyrics.
@@ -112,6 +73,12 @@ export class Lyrics {
      */
     get timestamp() { return this.#timestamp; }
 
+    /**
+     * Restituisce l'URI della traccia Spotify.
+     * @returns {string}
+     */
+    get uri() { return this.#uri; }
+
     // ============ SETTERS ============
 
     /**
@@ -153,6 +120,13 @@ export class Lyrics {
     set timestamp(value) {
         this.#timestamp = value;
     }
+    /**
+     * Imposta l'URI della traccia Spotify.
+     * @param {string} value - URI della traccia Spotify
+     */
+    set uri(value) {
+        this.#uri = value;
+    }
 
     /**
      * Serializza l'oggetto Lyrics in un formato JSON.
@@ -166,7 +140,8 @@ export class Lyrics {
             chorus: this.#chorus,
             syncedLyrics: this.syncedLyrics,
             syncedLines: this.syncedLines,
-            timestamp: this.timestamp
+            timestamp: this.timestamp,
+            uri: this.uri
         };
     }
 }

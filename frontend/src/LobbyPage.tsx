@@ -1,14 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+/**
+ * @file LobbyPage.tsx
+ * @description Gestione della lobby prima dell'inizio del gioco: mostra i giocatori, il loro stato di "ready", e permette all'host di avviare la partita.
+ * - Sincronizzazione dei testi: quando un giocatore entra, se non è "ready", viene avviata la sincronizzazione dei testi. Solo al completamento di questa operazione il giocatore viene segnato come "ready".
+ * - Gestione uscita: se un giocatore decide di uscire dalla lobby, blocchiamo ogni operazione in corso (join, sync) e navighiamo pulitamente alla dashboard. Questo previene qualsiasi problema di stato o socket "appesi" che potrebbero verificarsi se un giocatore lascia durante la sincronizzazione o subito dopo il join.
+ * - UI dinamica: mostra lo stato di ogni giocatore (host, ready, sincronizzazione) con avatar, nome e indicatori visivi. Il pulsante "Avvia Partita" è abilitato solo quando tutti i giocatori sono pronti.
+ */
+
+import { useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLobby } from './hooks/useLobby';
 import { fetchLyrics } from './service/spotify.service';
 import { socketService } from './service/socket.service';
 
-// Componenti Brand
+// Componenti UI
 import { Logo } from './components/Logo';
 import { NeonBackground } from './components/NeonBackground';
 import { MouseTracker } from './components/MouseTracker';
-import SpotifyPlayer from './components/SpotifyPlayer';
 import type { SpotifyUser } from './types/user.types';
 
 const avatarStyles: Record<number, string> = {
@@ -22,50 +29,69 @@ const avatarStyles: Record<number, string> = {
 const LobbyPage = ({ user }: { user: SpotifyUser | null }) => {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
-  const { room, error: lobbyError, setReady, startGame, joinRoom } = useLobby();
   
-  // Stati per Spotify
-  const [isPlayerReady, setIsPlayerReady] = useState(false);
-  const [activeDeviceId, setActiveDeviceId] = useState<string | null>(null);
-
-  // Lock per evitare bombardamento API Lyrics
+  const { room, error: lobbyError, setReady, startGame, joinRoom, leaveRoom } = useLobby();
+  const hasAttemptedJoin = useRef(false);
+  
   const syncLock = useRef<'IDLE' | 'FETCHING' | 'SUCCESS'>('IDLE');
+  
+  // Questo Ref è fondamentale: blocca ogni tentativo di join se l'utente ha cliccato "Esci"per evitare che nonostante la navigazione verso la dashboard, si riunisca alla stanza
+  const isLeavingRef = useRef(false);
 
-  // --- LOGICA DI USCITA PULITA ---
+  // Funzione di gestione uscita: blocca ogni operazione in corso e naviga alla dashboard
   const handleLeave = () => {
-    // 1. Notifica il server
-    socketService.socket?.emit('leave_room', roomId);
+    if (!roomId) return;
     
-    // 2. Resetta il lock locale
+    isLeavingRef.current = true; // Blocca istantaneamente gli useEffect locali
+    leaveRoom(roomId); 
     syncLock.current = 'IDLE';
-    
-    // 3. Forza un refresh dello stato se necessario (opzionale)
-    window.location.href = '/dashboard'; // Soluzione estrema se navigate fallisce
+    // Navigazione pulita verso la dashboard
+    navigate('/dashboard', { replace: true });
   };
 
-  // 1. Join nella stanza
-  useEffect(() => {
-    if (!room && roomId && user) {
-      joinRoom(roomId, user);
+  const handleStartGame = () => {
+    if (roomId && canStart) {
+      startGame(roomId);
     }
+  };
+
+  // 1 : gestione join alla stanza
+  useEffect(() => {
+    // Se stiamo lasciando, abbiamo già bloccato tutto, quindi non facciamo nulla
+    if (isLeavingRef.current || hasAttemptedJoin.current || !roomId || !user) {
+      return;
+    }
+    // Se la room c'è già ed è quella corretta, segna come fatto e basta
+    if (room && room.roomId === roomId) {
+      hasAttemptedJoin.current = true;
+      return;
+    }
+    // Esegue il join e blocca i tentativi successivi
+    hasAttemptedJoin.current = true;
+    joinRoom(roomId, user);
   }, [roomId, user, joinRoom, room]);
 
-  // 2. Sync Lyrics
+  // 2 : gestione sincronizzazione testi e stato "ready"
   useEffect(() => {
-    const meInRoom = room?.players.find(p => p.id === socketService.socket?.id);
+    if (isLeavingRef.current) return;
 
-    if (room && meInRoom && !meInRoom.isReady && syncLock.current === 'IDLE') {
+    const socketId = socketService.socket?.id;
+    const meInRoom = room?.players.find(p => p.id === socketId);
+
+    // Se sono in una stanza ma non sono segnato come "Ready", avvio il sync dei testi
+    if (room && roomId && meInRoom && !meInRoom.isReady && syncLock.current === 'IDLE') {
       const startSync = async () => {
         syncLock.current = 'FETCHING';
         try {
-          const res = await fetchLyrics();
-          if (res?.success) {
+          const res = await fetchLyrics(roomId);
+          if (res?.success && !isLeavingRef.current) {
             syncLock.current = 'SUCCESS';
-            setReady(roomId!); 
+            setReady(roomId); 
           } else { 
             syncLock.current = 'IDLE'; 
           }
-        } catch { 
+        } catch (err) { 
+          console.error("Errore sync lyrics:", err);
           syncLock.current = 'IDLE';
         }
       };
@@ -73,85 +99,61 @@ const LobbyPage = ({ user }: { user: SpotifyUser | null }) => {
     }
   }, [room, roomId, setReady]);
 
-  // 3. Navigazione al Game
+  // --- 3 : gestione navigazione alla schermata di gioco quando la partita inizia ---
   useEffect(() => {
-    let isMounted = true;
-
-    if (room?.status === 'PLAYING' && isMounted) {
+    if (room?.status === 'PLAYING' && roomId && !isLeavingRef.current) {
       navigate(`/game/${roomId}`);
     }
-
-    return () => { isMounted = false; };
   }, [room?.status, navigate, roomId]);
 
-  // Logica Bottoni e UI
+
+  // Dati per UI
   const me = room?.players.find(p => p.id === socketService.socket?.id);
   const isHost = me?.isHost;
-  
-  const canStart = (room?.players?.length ?? 0) >= 2 && 
-                   room?.players.every(p => p.isReady) && 
-                   isPlayerReady;
-
+  const canStart = (room?.players?.length ?? 0) >= 2 && room?.players.every(p => p.isReady); // La partita può essere avviata solo se ci sono almeno 2 giocatori e tutti sono pronti per debug settato a 1
   const delays = useMemo(() => [0, -1.5, -3.2, -0.8, -4.5], []);
-
-  const handleStartGame = () => {
-    if (roomId && canStart) {
-      console.log(`🚀 Avvio match sul device: ${activeDeviceId}`);
-      startGame(roomId);
-    }
-  };
-
-  useEffect(() => {
-  return () => {
-    // Quando l'utente lascia la pagina (smontaggio)
-    console.log("Smontaggio Lobby: invio leave_room");
-    socketService.socket?.emit('leave_room', roomId);
-    // Opzionale: se il tuo socketService ha una funzione per resettare lo stato
-    // socketService.reset(); 
-  };
-}, [roomId]);
 
   return (
     <div className="min-h-screen bg-brand-dark text-white relative flex flex-col items-center overflow-hidden font-sans">
-      
-      {/* Spotify Player caricato subito */}
-      <SpotifyPlayer onPlayerReady={(id) => {
-        setActiveDeviceId(id);
-        setIsPlayerReady(true);
-      }} />
-
       <NeonBackground />
       <MouseTracker />
 
-      {/* HEADER */}
+      {/* Header */}
       <header className="w-full max-w-6xl p-8 flex justify-between items-center z-20">
-        <Logo size="md" />
-        <div className="bg-white/5 border border-white/10 px-6 py-2 rounded-2xl backdrop-blur-xl">
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/40">Room ID</p>
-          <p className="text-xl font-black text-brand tracking-widest">{roomId}</p>
-        </div>
+      <Logo size="md" />
+      
+      {/* Aggiunto 'flex flex-col items-center' per centrare il contenuto del box */}
+      <div className="bg-white/5 border border-white/10 px-6 py-2 rounded-2xl backdrop-blur-xl flex flex-col items-center">
+        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/40 text-center">
+          ID Stanza
+        </p>
+        <p 
+          className="text-xl font-black text-brand tracking-widest text-center" 
+          style={{ filter: 'url(#neon-glow)' }}
+        > 
+          {roomId}
+        </p>
+      </div>
       </header>
 
-      {/* MAIN CONTENT */}
+      {/* Main Lobby */}
       <main className="flex-1 flex flex-col items-center justify-center z-10 w-full max-w-6xl px-6 py-10">
         <div className="text-center mb-16">
           <h2 className="text-4xl md:text-6xl font-black uppercase italic tracking-tighter mb-4">
-            Lobby <span className="text-brand text-glow">Vibes</span>
+            Lobby  <span  className="text-brand" style={{ filter: 'url(#neon-glow)' }}>Vibes</span>
           </h2>
           <div className="inline-flex items-center gap-2 px-4 py-1 bg-brand/10 border border-brand/20 rounded-full">
-             <div className={`w-2 h-2 rounded-full ${isPlayerReady ? 'bg-brand animate-pulse' : 'bg-red-500'}`} />
              <p className="text-brand font-black uppercase tracking-widest text-[9px]">
-               {room?.players.length || 0} / 5 Players
+               {room?.players.length || 0} / 4 giocatori
              </p>
           </div>
         </div>
 
-        {/* PLAYER GRID */}
+        {/* Griglia Avatar */}
         <div className="flex flex-wrap justify-center gap-10 md:gap-14 mb-20">
           {room?.players.map((p, i) => {
-            const spotifyImg = p.avatarUrl || (p.displayName === user?.display_name ? user?.images?.[0]?.url : null);
+            const spotifyImg = p.imageUrl || (p.displayName === user?.display_name ? user?.images?.[0]?.url : null);
             const styleClass = avatarStyles[p.defaultAvatarId as keyof typeof avatarStyles] || avatarStyles[1];
-
             return (
               <div 
                 key={p.id} 
@@ -184,28 +186,19 @@ const LobbyPage = ({ user }: { user: SpotifyUser | null }) => {
                 <div className="mt-5 text-center px-4">
                   <h3 className="font-black uppercase tracking-tight text-lg italic truncate max-w-[140px]">{p.displayName}</h3>
                   <p className={`text-[9px] font-black uppercase tracking-[0.3em] mt-2 ${p.isReady ? 'text-brand' : 'text-orange-400 animate-pulse'}`}>
-                    {p.isReady ? 'Ready' : 'Syncing...'}
+                    {p.isReady ? 'pronto' : 'Sincronizzazione...'}
                   </p>
                 </div>
               </div>
             );
           })}
-
-          {/* Slot vuoti per mantenere il layout pulito */}
-          {Array.from({ length: 5 - (room?.players.length || 0) }).map((_, i) => (
-            <div key={`empty-${i}`} className="w-32 h-32 md:w-36 md:h-36 rounded-full border-4 border-dashed border-white/5 flex items-center justify-center opacity-10">
-              <span className="text-3xl font-thin text-white">+</span>
-            </div>
-          ))}
         </div>
 
-        {/* ACTION AREA - TASTI AFFIANCATI */}
+        {/* Controlli di fondo */}
         <div className="w-full max-w-md flex gap-4">
-          
           <button
             onClick={handleLeave}
             className="flex-none w-16 h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-red-500/10 hover:border-red-500/40 group transition-all duration-300"
-            title="Esci dalla Lobby"
           >
             <svg className="w-6 h-6 text-white/20 group-hover:text-red-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -223,12 +216,12 @@ const LobbyPage = ({ user }: { user: SpotifyUser | null }) => {
                     : 'bg-white/5 text-white/10 cursor-not-allowed border border-white/5'
                 }`}
               >
-                {!isPlayerReady ? 'Spotify Connecting...' : canStart ? 'Start Match' : 'Waiting for Players'}
+                {canStart ? 'Avvia Partita' : 'In attesa di giocatori...'}
               </button>
             ) : (
               <div className="w-full h-16 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center px-6">
                 <p className="text-[9px] font-black uppercase tracking-[0.3em] text-white/30 italic text-center leading-tight">
-                  {!isPlayerReady ? "Spotify Syncing..." : me?.isReady ? "Ready to Play" : "Fetching Lyrics..."}
+                  {me?.isReady ? "Pronto per giocare" : "Recupero testi..."}
                 </p>
               </div>
             )}
@@ -236,9 +229,9 @@ const LobbyPage = ({ user }: { user: SpotifyUser | null }) => {
         </div>
       </main>
 
-      {/* FEEDBACK ERRORI */}
+      {/* Error Toast */}
       {lobbyError && (
-        <div className="fixed bottom-10 bg-red-600/90 text-white px-8 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest z-50 shadow-2xl animate-bounce">
+        <div className="fixed bottom-10 bg-red-600/90 text-white px-8 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest z-50 animate-bounce">
           {lobbyError}
         </div>
       )}

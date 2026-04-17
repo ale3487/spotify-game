@@ -259,13 +259,16 @@ export const checkCacheStatus = async (cacheName: string = 'beatmatch-api-cache'
  * const lyrics = await fetchLyrics();
  * // lyrics.lyrics contiene array di track con testi, ritornello, e timestamp
  */
-export async function fetchLyrics() {
-    const res = await fetch(`${BACKEND_URL}/api/spotify/lyrics`, {
-      method: "GET",
-      credentials: "include", // Include the JWT cookie
-    });
-    if (!res.ok) {
-      throw new Error(`Errore durante il recupero dei testi: ${res.statusText}`);
-    }
-    return await res.json();
+export async function fetchLyrics(roomId: string | undefined) {
+  if (!roomId) return console.error("RoomID mancante nel fetch!");
+
+  const res = await fetch(`${BACKEND_URL}/api/spotify/lyrics?roomId=${roomId}`, {
+    method: "GET",
+    credentials: "include", 
+  });
+
+  if (!res.ok) {
+    throw new Error(`Errore durante il recupero dei testi: ${res.statusText}`);
   }
+  return await res.json();
+}

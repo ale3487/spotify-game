@@ -5,68 +5,75 @@
  */
 
 /**
+ * Utility interna per pulire le stringhe durante il confronto.
+ * Rimuove tutto ciò che non è alfanumerico.
+ * @param {string} str 
+ * @returns {string}
+ */
+const normalizeForMatch = (str) => 
+  str.toLowerCase().replace(/[^a-z0-9]/g, "").trim();
+
+
+/**
  * Trova il timestamp d'inizio di un blocco di testo all'interno dei testi sincronizzati.
  * Utilizza un algoritmo di pattern matching che richiede l'80% di corrispondenza
  * con le linee del ritornello per identificare il blocco corretto.
  * 
  * @param {string} syncedLyrics - Il testo con i timestamp in formato [mm:ss.xx] seguito dal testo
  * @param {string} chorusText - Il testo del ritornello (senza timestamp)
- * @returns {string|null} Il timestamp nel formato "mm:ss.xx" (es. "01:01.15"), 
- *                       "00:30.00" se chorusText è null,
- *                       null se non trovato
+ * @returns {string|null} Il timestamp nel formato "mm:ss.xx" (es. "01:01.15"), "00:45.00" se chorusText è null o non identificabile
+ *                      
  * 
  * @example
  * const timestamp = findChorusTimestamp(syncedLyrics, chorusText);
  * // Ritorna: "01:15.50"
  */
 export const findChorusTimestamp = (syncedLyrics, chorusText) => {
-  if (!syncedLyrics) return null;
-  if (!chorusText) {
-    let syncedLines = {time: "00:30.00"};
-    return syncedLines.time;
-  }
-
-  // 1. pulizzia del testo del ritornello: split in linee, trim, lowercase, filter vuote
+  // Se non c'è il testo del ritornello, fallback standard
+  if (!syncedLyrics || !chorusText) return "00:45.00";
+  //normalizzazione del testo del ritornello per il matching
   const chorusLines = chorusText
     .split('\n')
-    .map(line => line.trim().toLowerCase())
+    .map(line => normalizeForMatch(line))
     .filter(line => line.length > 0);
+  // Se non ci sono linee valide nel ritornello, fallback standard
+  if (chorusLines.length === 0) return "00:45.00";
 
-  if (chorusLines.length === 0) return null;
+  const lines = syncedLyrics.split('\n');
+  const firstLineToFind = chorusLines[0];
 
-  // 2. parsiamo i testi sincronizzati in un array di oggetti { time, text }
-  const syncedLines = syncedLyrics.split('\n').map(line => {
-    // per catturare [00:00.00] e il resto del testo
-    const match = line.match(/^\[(\d{2}:\d{2}\.\d{2})\]\s*(.*)$/);
-    if (match) {
-      return {
-        time: match[1],
-        text: match[2].trim().toLowerCase()
-      };
-    }
-    return null;
-  }).filter(line => line !== null);
+  for (let i = 0; i < lines.length; i++) {
+    const currentLine = lines[i];
+    
+    // estrazione del timestamp [00:00.00] o [00:00]
+    const timeMatch = currentLine.match(/^\[(\d{2}:\d{2}(?:\.\d{2})?)\]/);
+    if (!timeMatch) continue;
 
-  // 3. ricerca del blocco di testo che corrisponde al ritornello
-  // scorrimento delle righe
-  for (let i = 0; i < syncedLines.length; i++) {
-    // Se la riga attuale della canzone corrisponde alla prima riga del ritornello
-    if (syncedLines[i].text === chorusLines[0]) {
+    const timestamp = timeMatch[1];
+    // Pulizia del testo rimuovendo i tag e normalizzando per il confronto
+    const textAfterTag = currentLine.replace(/^\[.*?\]/, "");
+    const normalizedSyncedText = normalizeForMatch(textAfterTag);
+
+    // Se la riga attuale normalizzata contiene la prima riga del ritornello
+    if (normalizedSyncedText.includes(firstLineToFind) || firstLineToFind.includes(normalizedSyncedText)) {
       
-      // Verificha se anche le righe successive corrispondono (almeno le prime 2-3)
       let matchCount = 0;
-      for (let j = 0; j < chorusLines.length; j++) {
-        if (syncedLines[i + j] && syncedLines[i + j].text === chorusLines[j]) {
-          matchCount++;
+      // Controllo delle righe successive per sicurezza (tolleranza 80%)
+      for (let j = 0; j < Math.min(chorusLines.length, 5); j++) {
+        if (lines[i + j]) {
+          const nextSynced = normalizeForMatch(lines[i + j].replace(/^\[.*?\]/, ""));
+          if (nextSynced.includes(chorusLines[j]) || chorusLines[j].includes(nextSynced)) {
+            matchCount++;
+          }
         }
       }
 
-      // Se trovata un match soddisfacente (almeno l'80% delle righe del blocco) ritorniamo il timestamp
-      if (matchCount / chorusLines.length >= 0.8) {
-        return syncedLines[i].time;
+      if (matchCount / Math.min(chorusLines.length, 5) >= 0.8) {
+        // Formattiamo il timestamp se mancano i centesimi
+        return timestamp.includes('.') ? timestamp : `${timestamp}.00`;
       }
     }
   }
 
-  return null;
+  return "00:45.00";
 };

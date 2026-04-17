@@ -1,7 +1,6 @@
 /**
  * @file App.tsx
- * @description Componente root dell'applicazione BeatMatch.
- * Gestisce l'autenticazione OAuth2, la persistenza della sessione e il routing principale.
+ * @description Componente root dell'applicazione BeatMatch con SpotifyProvider Globale.
  */
 
 import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
@@ -13,6 +12,9 @@ import Dashboard from './Dashboard';
 import { registerSW } from 'virtual:pwa-register';
 import type { SpotifyUser } from './types/user.types';
 import LobbyPage from './LobbyPage';
+import Game from './Game';
+import  SpotifyPlayer  from './components/SpotifyPlayer'; 
+import { SpotifyProvider } from './context/SpotifyContext';
 
 /**
  * Registra e aggiorna il Service Worker per il supporto PWA
@@ -21,19 +23,9 @@ registerSW({ immediate: true });
 
 /**
  * Componente per la gestione della Callback di OAuth2.
- * Recupera il codice dall'URL, effettua lo scambio dei token e reindirizza l'utente.
- * 
- * @param {Object} props - Proprietà del componente
- * @param {Function} props.onLogin - Callback per aggiornare lo stato dell'utente nel componente root
- * @returns {JSX.Element} Schermata di caricamento durante la sincronizzazione
  */
 function Callback({ onLogin }: { onLogin: (u: SpotifyUser) => void }) {
   const navigate = useNavigate();
-  
-  /**
-   * Ref per prevenire doppie chiamate causate dal React.StrictMode in sviluppo
-   * @type {React.MutableRefObject<boolean>}
-   */
   const hasCalled = useRef(false);
 
   useEffect(() => {
@@ -68,40 +60,12 @@ function Callback({ onLogin }: { onLogin: (u: SpotifyUser) => void }) {
   );
 }
 
-/**
- * Componente Root dell'applicazione BeatMatch.
- * Gestisce:
- * - L'inizializzazione della sessione utente al caricamento
- * - La persistenza dello stato di login
- * - Lo stato online/offline
- * - Il routing principale tra le pagine
- * 
- * @returns {JSX.Element} Albero di routing dell'applicazione
- */
 export default function App() {
-  /**
-   * Dati dell'utente autenticato
-   * @type {[SpotifyUser | null, Function]}
-   */
   const [user, setUser] = useState<SpotifyUser | null>(null);
-
-  /**
-   * Indica se l'app sta caricando i dati della sessione
-   * @type {[boolean, Function]}
-   */
   const [loading, setLoading] = useState<boolean>(true);
-  
-  /**
-   * Stato della connessione internet (online/offline)
-   * @type {[boolean, Function]}
-   */
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   useEffect(() => {
-    /**
-     * Inizializza la sessione al caricamento dell'app
-     * Controlla se esiste una sessione valida nel backend
-     */
     async function initAuth() {
       try {
         const userData = await checkSession();
@@ -116,9 +80,6 @@ export default function App() {
     }
     initAuth();
 
-    /**
-     * Listener per il cambio di connettività
-     */
     const handleStatus = () => setIsOnline(navigator.onLine);
     window.addEventListener('online', handleStatus);
     window.addEventListener('offline', handleStatus);
@@ -136,21 +97,26 @@ export default function App() {
   );
 
   return (
-    <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="/callback" element={<Callback onLogin={setUser} />} />
-      
-      {/* 2. Dashboard: accessibile sempre (gestisce internamente lo stato offline) */}
-      <Route path="/dashboard" element={<Dashboard user={user} />} />
-      
-      {/* 3. Lobby: accessibile solo se l'utente è autenticato, altrimenti reindirizza alla Home */}
-      <Route path="/lobby/:roomId" element={<LobbyPage user={user} />} />
+    /* Avvolgiamo tutte le rotte con lo SpotifyProvider.
+       Il Player verrà creato una sola volta non appena 'user' sarà disponibile.
+    */
+    <SpotifyProvider user={user}>
+      <SpotifyPlayer />
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/callback" element={<Callback onLogin={setUser} />} />
+        
+        {/* Pagine principali */}
+        <Route path="/dashboard" element={<Dashboard user={user} />} />
+        <Route path="/lobby/:roomId" element={<LobbyPage user={user} />} />
+        <Route path="/game/:roomId" element={<Game user={user} />} />
+        
+        {/* Statistiche */}
+        <Route path="/statistics" element={<Statistics user={user} isOffline={!isOnline} />} />
 
-      {/* 4. Rotte Condizionali: se offline, reindirizza alla Dashboard */}
-      <Route path="/statistics" element={<Statistics user={user} isOffline={!isOnline} />} />
-
-      {/* Fallback per rotte non trovate o errori di caricamento offline */}
-      <Route path="*" element={<Navigate to={user ? "/dashboard" : "/"} replace />} />
-    </Routes>
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to={user ? "/dashboard" : "/"} replace />} />
+      </Routes>
+    </SpotifyProvider>
   );
 }

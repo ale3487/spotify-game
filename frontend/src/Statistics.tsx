@@ -1,13 +1,20 @@
 /**
  * @file Statistics.tsx
- * Dashboard per le statistiche utente con Spotify Web Playback SDK integrato nella parte brani.
+ * @description Dashboard statistiche con grafica e Player globale, mostra i top artisti o brani dell'utente con stima del tempo di ascolto totale.
+ * se artisti mostra nome, immagine e link Spotify, se brani mostra nome, artista, immagine e pulsante play/pausa integrato con Spotify Web Playback SDK.
+ * include selettori per tipo (artisti/brani) e range temporale (1 mese, 6 mesi, 1 anno) con stima minuti/ore basata su numero di elementi.
+ * utilizza componenti Logo, NeonBackground e MouseTracker per grafica accattivante.
+ * se utente non loggato reindirizza alla home.
+ * gestisce stato di caricamento e errori durante fetch dati.
+ * Gestione offline: mostra badge "Offline" se isOffline è true, disabilita funzionalità di riproduzione e mostra messaggio di avviso.
  */
-
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:5000";
 
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { fetchTopUser } from "./service/spotify.service";
+import { useSpotify } from './hooks/useSpotify';
+
+// --- TIPI ---
 import type { 
   StatisticsProps, 
   TrackOrArtist, 
@@ -22,7 +29,8 @@ import type {
 import { Logo } from './components/Logo'; 
 import { NeonBackground } from './components/NeonBackground';
 import { MouseTracker } from './components/MouseTracker';
-import SpotifyPlayer from './components/SpotifyPlayer'; 
+
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:5000";
 
 const Statistics = ({ user, isOffline }: StatisticsProps) => {
   const [items, setItems] = useState<TrackOrArtist[]>([]);
@@ -30,24 +38,18 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
   const [type, setType] = useState<'artists' | 'tracks'>('artists');
   const [range, setRange] = useState<string>('medium_term');
   const [loading, setLoading] = useState<boolean>(true);
-  
-  // --- STATO PLAYER TIPIZZATO ---
   const [playingId, setPlayingId] = useState<string | null>(null);
-  const [deviceId, setDeviceId] = useState<string | null>(null);
-  const [playerInstance, setPlayerInstance] = useState<Spotify.Player | null>(null);
-
+  const { deviceId, player: playerInstance } = useSpotify();
   const navigate = useNavigate();
 
   // --- FETCHING DATI ---
   useEffect(() => {
     if (!user) return;
-    
     const loadData = async () => {
       setLoading(true);
       try {
         const response: BackendResponse = await fetchTopUser(type, range);
         const rawItems = response.data || [];
-        
         const formattedData: TrackOrArtist[] = rawItems.map((item: RawItem) => {
           if ('link' in item && typeof item.link === 'string') {
             const cached = item as CachedItem;
@@ -60,7 +62,6 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
               artist: cached.artist
             };
           }
-
           if ('artists' in item) {
             const track = item as SpotifyTrackRaw;
             return {
@@ -72,7 +73,6 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
               artist: track.artists.map(a => a.name).join(', ')
             };
           }
-
           const artist = item as SpotifyArtistRaw;
           return {
             id: artist.id,
@@ -83,7 +83,6 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
             artist: undefined
           };
         });
-
         setItems(formattedData);
         setTotalItems(response.total || formattedData.length);
       } catch (err) { 
@@ -93,33 +92,20 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
         setLoading(false); 
       }
     };
-    
     loadData();
   }, [type, range, user]);
 
   // --- LOGICA PLAYBACK ---
   const handlePlayPause = async (trackUri: string, trackId: string) => {
-    // Controllo sicurezza sui tipi
     if (!playerInstance || !deviceId) return;
-
     if (playingId === trackId) {
       await playerInstance.pause();
       setPlayingId(null);
       return;
     }
-
     try {
-          const tokenRes = await fetch(`${BACKEND_URL}/api/spotify/access_token`, { 
-            method: 'GET',
-            headers: {
-              'Accept': 'application/json',
-              'Cache-Control': 'no-cache' 
-            },
-            credentials: 'include' 
-          });
+      const tokenRes = await fetch(`${BACKEND_URL}/api/spotify/access_token`, { credentials: 'include' });
       const { accessToken }: { accessToken: string } = await tokenRes.json();
-
-      // Endpoint ufficiale Spotify per il comando di riproduzione
       await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
         method: 'PUT',
         body: JSON.stringify({ uris: [trackUri] }),
@@ -129,9 +115,7 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
         },
       });
       setPlayingId(trackId);
-    } catch (err) {
-      console.error("Errore riproduzione:", err);
-    }
+    } catch (err) { console.error("Errore riproduzione:", err); }
   };
 
   const estimatedMinutes = useMemo(() => {
@@ -146,15 +130,7 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
       <NeonBackground />
       <MouseTracker />
       
-      <SpotifyPlayer 
-        onPlayerReady={(id: string, instance: Spotify.Player) => {
-          setDeviceId(id);
-          setPlayerInstance(instance);
-        }} 
-      />
-
       <main className="max-w-6xl mx-auto space-y-8 relative z-10">
-        {/* HEADER DASHBOARD */}
         <header className="flex justify-between items-center px-4">
           <div className="flex items-center gap-4">
             <Logo size="md" />
@@ -169,7 +145,6 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
           </button>
         </header>
 
-        {/* TOP CARDS: PROFILE & STATS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-glass-gradient backdrop-blur-3xl border border-white/10 rounded-[2.5rem] p-6 flex items-center gap-6">
             <img src={user.images?.[0]?.url || ''} className="w-20 h-20 rounded-full border border-white/20 p-1 object-cover" alt="Profile" />
@@ -198,13 +173,8 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
           </div>
         </div>
 
-        {/* MAIN CONTENT SECTION */}
         <section className="bg-glass-gradient backdrop-blur-3xl border border-white/10 rounded-[3rem] overflow-hidden flex flex-col h-[620px]">
-          
-          {/* CONTROL BAR: TYPE & RANGE */}
           <div className="p-8 border-b border-white/10 flex flex-col md:flex-row justify-between items-center bg-white/[0.02] gap-4">
-            
-            {/* Selettore Tipo */}
             <div className="bg-white/5 p-1.5 rounded-2xl flex border border-white/5">
               <button 
                 onClick={() => setType('artists')} 
@@ -220,7 +190,6 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
               </button>
             </div>
 
-            {/* Selettore Range */}
             <div className="bg-white/5 p-1.5 rounded-2xl flex border border-white/5">
               {[
                 { id: 'short_term', label: '1 Mese' },
@@ -231,9 +200,7 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
                   key={r.id}
                   onClick={() => setRange(r.id)}
                   className={`px-6 py-3.5 rounded-xl text-[10px] font-black uppercase transition-all duration-300 ${
-                    range === r.id 
-                      ? 'bg-white/10 text-brand border border-brand/20' 
-                      : 'text-slate-500 hover:text-slate-300'
+                    range === r.id ? 'bg-white/10 text-brand border border-brand/20' : 'text-slate-500 hover:text-slate-300'
                   }`}
                 >
                   {r.label}
@@ -242,7 +209,6 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
             </div>
           </div>
 
-          {/* TABLE AREA */}
           <div className="flex-1 overflow-y-auto custom-scrollbar px-8 py-4">
             <table className="w-full border-separate border-spacing-y-4">
               <tbody>
@@ -261,7 +227,6 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
                       {(index + 1).toString().padStart(2, '0')}
                     </td>
 
-                    {/* Image & Info */}
                     <td className="p-2">
                       <div className="flex items-center gap-6">
                         <img 
@@ -278,7 +243,6 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
                       </div>
                     </td>
 
-                    {/* Action Button */}
                     <td className="p-4 text-right">
                       {type === 'tracks' ? (
                         <button 
@@ -297,9 +261,7 @@ const Statistics = ({ user, isOffline }: StatisticsProps) => {
                         </button>
                       ) : (
                         <a 
-                          href={item.link} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
+                          href={item.link} target="_blank" rel="noopener noreferrer"
                           className="inline-flex items-center justify-center w-12 h-12 rounded-full border border-white/10 bg-white/5 text-white/40 hover:text-brand hover:border-brand/50 hover:bg-brand/5 transition-all duration-500 shadow-xl"
                         >
                           <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">

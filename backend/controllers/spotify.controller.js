@@ -12,6 +12,7 @@ import { getValidAccessToken } from "../service/spotifyService.js";
 import { Lyrics } from "../class/Lyrics.js";
 import { findChorusByBlocks } from "../utility/findChorusByBlocks.js";
 import { findChorusTimestamp } from "../utility/findChorusTimestamp.js";
+import { roomManager } from '../class/RoomManager.js';
 
 /**
  * Gestisce il callback di autenticazione Spotify (OAuth2 PKCE Exchange).
@@ -187,8 +188,8 @@ export const TopUser = async (req, res) => {
         id: item.id,
         name: item.name,
         image: operation === "artists" 
-          ? item.images?.[0]?.url 
-          : item.album?.images?.[0]?.url,
+          ? item.images?.[0]?.url || ""
+          : item.album?.images?.[0]?.url || "",
         link: item.external_urls?.spotify
       };
 
@@ -231,85 +232,114 @@ export const TopUser = async (req, res) => {
 };
 
 /**
- * Recupera i testi sincronizzati per le tracce "long term" dell'utente
+ * Recupera i testi delle canzoni preferite dell'utente.
+ * Per ogni traccia, cerca di identificare il ritornello e il timestamp d'inizio utilizzando i testi sincronizzati. 
+ * Utilizza le utility findChorusByBlocks e findChorusTimestamp per estrarre queste informazioni.
  */
+
 export const spotifyLyrics = async (req, res) => {
   try {
-    const lyricsInstances = [];
+    const { roomId } = req.query;
     const spotifyId = req.user?.spotifyId;
+    const accessToken = req.user?.accessToken;
+
+    const room = roomManager.getRoom(roomId);
+    if (!room) return res.status(404).json({ error: "Stanza non trovata." });
+
+    const playerInstance = room.playersInstances.find(p => p.spotifyId === spotifyId);
+    
+    if (!playerInstance) return res.status(404).json({ error: "Giocatore non trovato nella stanza." });
+
+    const deviceId = playerInstance.deviceId;
+
+    const dbUserData = await db.collection("user_stats").doc(spotifyId).get();
+    const trackList = dbUserData.data().tracks?.short_term?.items || [];
+    
+    const lyricsInstances = [];
     let counter = 0;
 
-    // 1. Controllo Autenticazione
-    if (!spotifyId) {
-      return res.status(401).json({ error: "Non autorizzato. Sessione mancante." });
-    }
-
-    // 2. Recupero dati da Firestore
-    const dbUserData = await db.collection("user_stats").doc(spotifyId).get();
-    if (!dbUserData.exists) {
-      return res.status(404).json({ error: "Dati utente non trovati nel database." });
-    }
-
-    const userData = dbUserData.data();
-    // Navigazione sicura nella struttura specifica: tracks -> long_term -> items
-    const trackList = userData.tracks?.long_term?.items || [];
-
-    // 3. Elaborazione Tracce (Limite a 5 per ottimizzare i tempi di risposta)
     for (const track of trackList) {
-      if (track?.name && track?.artist) {
-        if (counter >= 5) break;
-        counter++;
+      if (counter >= 5) break;
+      counter++;
 
-        const currentTrack = new Lyrics(track.name, track.artist);
+      const trackUri = track.uri || `spotify:track:${track.id}`;
+      const currentTrack = new Lyrics(track.name, track.artist);
+      
+      currentTrack.uri = trackUri;
+      currentTrack.spotifyId = track.id;
+      currentTrack.image = track.image;
 
-        // Preparazione dei parametri codificati per l'URL (gestione spazi e caratteri speciali)
-        const artistEnc = encodeURIComponent(track.artist);
-        const trackEnc = encodeURIComponent(track.name);
-        const lyricsUrl = `https://lrclib.net/api/get?artist_name=${artistEnc}&track_name=${trackEnc}`;
+      // --- Chiamata API (LRCLIB) ---
+      const artistEnc = encodeURIComponent(track.artist);
+      const trackEnc = encodeURIComponent(track.name);
+      const lyricsUrl = `https://lrclib.net/api/get?artist_name=${artistEnc}&track_name=${trackEnc}`;
 
-        try {
-          const apiResponse = await fetch(lyricsUrl, {
-            headers: { 'User-Agent': 'SpotifyGameApp/1.0' },
-          });
-
-          if (apiResponse.ok) {
-            const data = await apiResponse.json();
-            currentTrack.lyrics = data.plainLyrics ||data.syncedLyrics  || "Testo non trovato";
-            currentTrack.syncedLyrics = data.syncedLyrics || null;
-          } else {
-            currentTrack.lyrics = "Testo non disponibile";
-          }
-        } catch (apiError) {
-          // Se LRCLIB fallisce, assegnazione di un messaggio di errore senza bloccare il ciclo
-          currentTrack.lyrics = "Errore nel recupero del testo";
+      try {
+        const apiResponse = await fetch(lyricsUrl, { 
+          headers: { 'User-Agent': 'SpotifyGameApp/1.0' } 
+        });
+        if (apiResponse.ok) {
+          const data = await apiResponse.json();
+          currentTrack.lyrics = data.plainLyrics || data.syncedLyrics || "Testo non trovato";
+          currentTrack.syncedLyrics = data.syncedLyrics || null;
         }
-        currentTrack.chorus = findChorusByBlocks(currentTrack.lyrics);
-        currentTrack.syncedLines = findChorusTimestamp(currentTrack.syncedLyrics, currentTrack.chorus);
-        console.log(`Elaborata traccia: ${currentTrack.name} di ${currentTrack.artist}` + ` - Chorus identificato: ${currentTrack.chorus ? "Sì" : "No"}`);
-        console.log(`tempo ritornello: ${currentTrack.syncedLines || "Non trovato"}`);
-        lyricsInstances.push(currentTrack);
+      } catch (e) {
+        console.error("Errore download lyrics");
+      }
+
+      currentTrack.chorus = findChorusByBlocks(currentTrack.lyrics);
+      currentTrack.timestamp = findChorusTimestamp(currentTrack.syncedLyrics, currentTrack.chorus);
+
+      lyricsInstances.push(currentTrack);
+    }
+
+    // --- SALVATAGGIO NEL PLAYER ---
+    playerInstance.topTracks = lyricsInstances.map(item => ({
+        track: item.name,
+        artist: item.artist,
+        uri: item.uri,
+        image: item.image,
+        timestamp: item.timestamp,
+        lyrics: item.lyrics
+    }));
+
+    // comando Play su Spotify Web Player (se accessToken e deviceId sono disponibili)
+    if (accessToken && deviceId && lyricsInstances.length > 0) {
+      try {
+        const spotifyPlayUrl = `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`;
+
+        await fetch(spotifyPlayUrl, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            uris: [lyricsInstances[0].uri],
+            position_ms: 0
+          })
+        });
+      } catch (spErr) {
+        console.error(" Fallimento comando Play Spotify:", spErr.message);
       }
     }
 
-    // 4. Trasformazione per il Frontend
+    // Risposta al Frontend
     const responsePayload = lyricsInstances.map(item => ({
-      track: item.name,
-      artist: item.artist,
-      lyrics: item.lyrics,
-      chorus: item.chorus,
-      timestamp: item.syncedLines
+        track: item.track,
+        artist: item.artist,
+        timestamp: item.timestamp,
+        uri: item.uri
     }));
 
-    // 5. Risposta finale
     return res.status(200).json({
       success: true,
       lyrics: responsePayload
     });
 
   } catch (error) {
-    // Gestione errori del server
-    console.error("Errore critico in spotifyLyrics:", error);
-    return res.status(500).json({ error: "Errore interno del server durante l'elaborazione." });
+    console.error("Errore controller spotifyLyrics:", error);
+    res.status(500).json({ error: "Errore interno" });
   }
 };
 

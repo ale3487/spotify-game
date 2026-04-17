@@ -1,85 +1,94 @@
 /**
  * @file LobbyProvider.tsx
- * @description Provider React che gestisce lo stato condiviso della lobby.
- * Wrappa i componenti figli con Socket.io listener e fornisce funzioni per interagire con il backend.
+ * @description Provider con funzioni stabilizzate tramite useCallback per evitare loop infiniti.
  */
 
-import  { useState } from 'react';
-import type { ReactNode} from 'react';
+import { useState, useCallback } from 'react';
+import type { ReactNode } from 'react';
 import { socketService } from '../service/socket.service';
 import type { RoomState } from '../types/lobby.types';
 import type { SpotifyUser } from '../types/user.types';
 import { LobbyContext } from './LobbyContext';
 
-/**
- * Provider che gestisce lo stato della lobbystico e la comunicazione via Socket.io.
- * Deve essere posizionato come antenato dei componenti che usano useLobby().
- * 
- * @param {Object} props - Props del componente
- * @param {ReactNode} props.children - Componenti figli da wrappare
- * @returns {JSX.Element} Provider con LobbyContext
- */
 export const LobbyProvider = ({ children }: { children: ReactNode }) => {
-  /**
-   * Stato della stanza corrente (null se non in una stanza)
-   * @type {[RoomState | null, Function]}
-   */
   const [room, setRoom] = useState<RoomState | null>(null);
-
-  /**
-   * Ultimo messaggio di errore ricevuto dal server
-   * @type {[string | null, Function]}
-   */
   const [error, setError] = useState<string | null>(null);
 
   /**
-   * Stabilisce la connessione Socket.io e registra i listener.
-   * Se la connessione è già stabilita, registra solo i nuovi listener.
-   * 
-   * @returns {Socket} Istanza del socket connesso
+   * Funzione per connettersi al socket e stabilire i listener.
    */
-  const getConnectedSocket = () => {
+  const getConnectedSocket = useCallback(() => {
     const io = socketService.connect();
     
-    // Listener per aggiornamenti dello stato della stanza
     io.off('room_update').on('room_update', (data: RoomState) => {
       setRoom(data);
       setError(null);
     });
 
-    // Listener per errori dal server
     io.off('error').on('error', (msg: string) => setError(msg));
     
     return io;
-  };
+  }, []);
+
+  // Stabilizziamo tutte le funzioni del context
+  
+  /**
+   * Funzione per creare una nuova stanza. Invia i dati dell'utente al server tramite socket.
+   * @param userData - Dati dell'utente che crea la stanza
+   */
+  const createRoom = useCallback((userData: SpotifyUser) => {
+    getConnectedSocket().emit('create_room', userData);
+  }, [getConnectedSocket]);
 
   /**
-   * Crea una nuova stanza e aggiunge il giocatore corrente come host.
-   * @param {SpotifyUser} userData - Dati dell'utente Spotify
+   * Funzione per unirsi a una stanza esistente. Invia l'ID della stanza e i dati dell'utente al server tramite socket.
+   * @param roomId - ID della stanza a cui unirsi
+   * @param userData - Dati dell'utente che si unisce alla stanza
    */
-  const createRoom = (userData: SpotifyUser) => getConnectedSocket().emit('create_room', userData);
+  const joinRoom = useCallback((roomId: string, userData: SpotifyUser) => {
+    getConnectedSocket().emit('join_room', { roomId, userData });
+  }, [getConnectedSocket]);
 
   /**
-   * Unisce il giocatore a una stanza esistente.
-   * @param {string} roomId - ID della stanza a cui unirsi
-   * @param {SpotifyUser} userData - Dati dell'utente Spotify
+   * Funzione per segnalare che un giocatore è pronto. Invia l'ID della stanza al server tramite socket.
+   * @param roomId - ID della stanza in cui il giocatore è pronto
    */
-  const joinRoom = (roomId: string, userData: SpotifyUser) => getConnectedSocket().emit('join_room', { roomId, userData });
+  const setReady = useCallback((roomId: string) => {
+    socketService.socket?.emit('set_ready', { roomId });
+  }, []);
 
   /**
-   * Segnala al server che il giocatore è pronto per iniziare la partita.
-   * @param {string} roomId - ID della stanza
+   * Funzione per iniziare il gioco. Invia l'ID della stanza al server tramite socket.
+   * @param roomId - ID della stanza in cui iniziare il gioco
    */
-  const setReady = (roomId: string) => socketService.socket?.emit('set_ready', { roomId });
+  const startGame = useCallback((roomId: string) => {
+    socketService.socket?.emit('start_game', { roomId });
+  }, []);
 
   /**
-   * Avvia la partita (solo disponibile per l'host della stanza).
-   * @param {string} roomId - ID della stanza
+   * Funzione per lasciare la stanza. Invia l'ID della stanza al server tramite socket e resetta lo stato locale.
+   * @param roomId - ID della stanza da lasciare
    */
-  const startGame = (roomId: string) => socketService.socket?.emit('start_game', { roomId });
+  const leaveRoom = useCallback((roomId: string) => {
+    if (socketService.socket) {
+      socketService.socket.emit('leave_room', roomId);
+    }
+    setRoom(null);
+    setError(null);
+  }, []);
 
   return (
-    <LobbyContext.Provider value={{ room, error, createRoom, joinRoom, setReady, startGame }}>
+    <LobbyContext.Provider 
+      value={{ 
+        room, 
+        error, 
+        createRoom, 
+        joinRoom, 
+        setReady, 
+        startGame, 
+        leaveRoom 
+      }}
+    >
       {children}
     </LobbyContext.Provider>
   );

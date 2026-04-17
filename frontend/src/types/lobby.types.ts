@@ -21,7 +21,7 @@ export interface PlayerData {
   /** ID dell'avatar di default (se l'utente non ha foto profilo Spotify) */
   defaultAvatarId: number; 
   /** URL dell'immagine profilo Spotify (null se non disponibile) */
-  avatarUrl: string | null; 
+  imageUrl: string | null; 
 }
 
 /**
@@ -55,6 +55,8 @@ export interface LobbyContextType {
   createRoom: (userData: SpotifyUser) => void;
   /** Funzione per unirsi a una stanza esistente */
   joinRoom: (roomId: string, userData: SpotifyUser) => void;
+  /** Funzione per lasciare la stanza */
+  leaveRoom: (roomId: string) => void;
 }
 
 /**
