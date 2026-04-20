@@ -15,6 +15,8 @@ import LobbyPage from './LobbyPage';
 import Game from './Game';
 import  SpotifyPlayer  from './components/SpotifyPlayer'; 
 import { SpotifyProvider } from './context/SpotifyContext';
+import ConnectionLost from './ConnectionLost';
+
 
 /**
  * Registra e aggiorna il Service Worker per il supporto PWA
@@ -97,26 +99,26 @@ export default function App() {
   );
 
   return (
-    /* Avvolgiamo tutte le rotte con lo SpotifyProvider.
-       Il Player verrà creato una sola volta non appena 'user' sarà disponibile.
-    */
     <SpotifyProvider user={user}>
       <SpotifyPlayer />
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/callback" element={<Callback onLogin={setUser} />} />
-        
-        {/* Pagine principali */}
-        <Route path="/dashboard" element={<Dashboard user={user} />} />
-        <Route path="/lobby/:roomId" element={<LobbyPage user={user} />} />
-        <Route path="/game/:roomId" element={<Game user={user} />} />
-        
-        {/* Statistiche */}
-        <Route path="/statistics" element={<Statistics user={user} isOffline={!isOnline} />} />
-
-        {/* Fallback */}
-        <Route path="*" element={<Navigate to={user ? "/dashboard" : "/"} replace />} />
-      </Routes>
+      
+      {/* LOGICA DI REINDIRIZZAMENTO GLOBALE:
+         Se l'utente è offline, mostra la pagina ConnectionLost.
+         Escludiamo la rotta "statistics", "dashboard" e "/".
+      */}
+      {!isOnline && window.location.pathname !== '/statistics'  && window.location.pathname !== '/dashboard' && window.location.pathname !== '/' ? (
+        <ConnectionLost />
+      ) : (
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/callback" element={<Callback onLogin={setUser} />} />
+          <Route path="/dashboard" element={<Dashboard user={user} />} />
+          <Route path="/lobby/:roomId" element={<LobbyPage user={user} />} />
+          <Route path="/game/:roomId" element={<Game user={user} />} />
+          <Route path="/statistics" element={<Statistics user={user} isOffline={!isOnline} />} />
+          <Route path="*" element={<Navigate to={user ? "/dashboard" : "/"} replace />} />
+        </Routes>
+      )}
     </SpotifyProvider>
   );
 }

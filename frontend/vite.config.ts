@@ -45,7 +45,7 @@ export default defineConfig({
 
       workbox: {
         inlineWorkboxRuntime: true, 
-    
+        importScripts: ['/sw-push-listener.js'],
         globPatterns: ['**/*.{js,css,html,ico,png,svg,json}'],
         navigateFallback: '/index.html',
         navigateFallbackAllowlist: [/^(?!\/__).*/],

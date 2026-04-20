@@ -345,7 +345,6 @@ export const spotifyLyrics = async (req, res) => {
 
 /**
  * Endpoint per ottenere l'access token dal database Spotify per l'utente autenticato, utilizzato per spotify web player.
- * 
  */
 
 export const getToken = async (req, res) => {
@@ -382,5 +381,24 @@ export const getToken = async (req, res) => {
   } catch (err) {
     console.error("[CONTROLLER ERROR] Errore critico getToken:", err);
     return res.status(500).json({ error: "Errore interno del server." });
+  }
+};
+
+/**
+ * Endpoint per iscrivere l'utente a notifiche o aggiornamenti Spotify.
+ * Salva la sottoscrizione push su Firestore associata all'utente.
+*/
+
+export const subscribe = async (req, res) => {
+  const { subscription, userId } = req.body;
+  
+  try {
+    await admin.firestore().collection('users').doc(userId).set({
+      pushSubscription: subscription
+    }, { merge: true });
+    
+    res.status(201).json({ message: 'Sottoscrizione salvata' });
+  } catch (error) {
+    res.status(500).send(error);
   }
 };

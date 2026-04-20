@@ -11,6 +11,9 @@ import dotenv from "dotenv";
 import cookieParser from 'cookie-parser';
 import { createServer } from "http"; 
 import { Server } from "socket.io"; 
+import webpush from 'web-push';
+import cron from 'node-cron';
+import admin from 'firebase-admin';
 
 import spotifyRoutes from "./routes/spotify.routes.js";
 import { initSocketLogic } from "./socket.js"; 
@@ -50,4 +53,28 @@ initSocketLogic(io);
 // 7. IMPORTANTE: Avvia 'httpServer' 
 httpServer.listen(PORT, () => {
   console.log(`[SERVER] BeatMatch Backend + Sockets in esecuzione sulla porta ${PORT}`);
+});
+
+// Configura VAPID per le notifiche push
+webpush.setVapidDetails('mailto:a.cerasomma@studenti.unipi.it', process.env.FRONTEND_VAPID_PUBLIC_KEY, process.env.BACKEND_VAPID_KEYS);
+
+// Esegue ogni giorno alle 12:00 per inviare notifiche push agli utenti con sottoscrizione attiva
+cron.schedule('00 12 * * *', async () => {
+  const usersSnapshot = await admin.firestore().collection('users')
+    .where('pushSubscription', '!=', null).get();
+
+  const payload = JSON.stringify({
+    title: 'BeatMatch Stats',
+    body: 'Guarda le tue statistiche aggiornate!'
+  });
+
+  usersSnapshot.forEach(doc => {
+    const sub = doc.data().pushSubscription;
+    webpush.sendNotification(sub, payload).catch(err => {
+      if (err.statusCode === 410) {
+        // in caso di sottoscrizione non più valida, rimuovila dal database
+        doc.ref.update({ pushSubscription: null });
+      }
+    });
+  });
 });

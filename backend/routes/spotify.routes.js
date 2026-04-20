@@ -6,7 +6,7 @@
  */
 
 import express from "express";
-import { loginSpotify, getMe, TopUser, spotifyLyrics, getToken} from "../controllers/spotify.controller.js";
+import { loginSpotify, getMe, TopUser, spotifyLyrics, getToken, subscribe} from "../controllers/spotify.controller.js";
 import { authenticate } from "../service/coockies.js";
 
 const router = express.Router();
@@ -64,5 +64,14 @@ router.get('/lyrics', authenticate, spotifyLyrics);
  * @returns {Object} Oggetto con accessToken pronto per le richieste API Spotify
  */
 router.get('/access_token', authenticate, getToken)
+
+/**
+ * @route   GET /api/spotify/subscribe
+ * @desc    Endpoint per iscrivere l'utente a notifiche o aggiornamenti Spotify.
+ * @access  Private
+ * @returns {Object} Messaggio di conferma della sottoscrizione
+ */
+
+router.post('/subscribe', authenticate, subscribe);
 
 export default router;
