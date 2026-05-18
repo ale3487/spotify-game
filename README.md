@@ -28,14 +28,17 @@ Sempre mantenendo i due terminali separati, esegui i seguenti comandi per avviar
 
 Frontend
 Nel terminale dedicato al frontend, compila il progetto e avvia l'anteprima:
-
+```bash
 npm run build
 npm run preview
+```
+
 
 Backend
 Nel terminale dedicato al backend, avvia il server Node.js:
-
+```bash
 node server.js
+```
 
 ## Autenticazione e Accesso
 Per accedere all'applicazione, segui questi passaggi:
